@@ -1178,6 +1178,10 @@ async function fsInitialLoad(){
         if(data.deletePassword) localStorage.setItem(DELETE_PW_KEY, data.deletePassword);
         else localStorage.removeItem(DELETE_PW_KEY);
       }
+      if(typeof data.deletePasswordSalt === 'string'){
+        if(data.deletePasswordSalt) localStorage.setItem(DELETE_PW_SALT_KEY, data.deletePasswordSalt);
+        else localStorage.removeItem(DELETE_PW_SALT_KEY);
+      }
       if(typeof data.deletePasswordHint === 'string'){
         if(data.deletePasswordHint) localStorage.setItem(DELETE_PW_HINT_KEY, data.deletePasswordHint);
         else localStorage.removeItem(DELETE_PW_HINT_KEY);
@@ -1205,6 +1209,10 @@ function fsListen(){
       if(data.deletePassword) localStorage.setItem(DELETE_PW_KEY, data.deletePassword);
       else localStorage.removeItem(DELETE_PW_KEY);
     }
+    if(typeof data.deletePasswordSalt === 'string'){
+      if(data.deletePasswordSalt) localStorage.setItem(DELETE_PW_SALT_KEY, data.deletePasswordSalt);
+      else localStorage.removeItem(DELETE_PW_SALT_KEY);
+    }
     if(typeof data.deletePasswordHint === 'string'){
       if(data.deletePasswordHint) localStorage.setItem(DELETE_PW_HINT_KEY, data.deletePasswordHint);
       else localStorage.removeItem(DELETE_PW_HINT_KEY);
@@ -1225,6 +1233,7 @@ async function fsSaveNow(){
       schedules,
       holidays,
       deletePassword: (typeof getDeletePw === 'function') ? getDeletePw() : '',
+      deletePasswordSalt: (typeof getDeletePwSalt === 'function') ? getDeletePwSalt() : '',
       deletePasswordHint: (typeof getDeletePwHint === 'function') ? getDeletePwHint() : '',
       updatedBy: user.email,
       updatedAt: firebase.firestore.FieldValue.serverTimestamp()
@@ -1244,6 +1253,7 @@ function fsScheduleSave(){
 const STORAGE_KEY = 'schedule_manager_data_v1';
 const HOLIDAY_KEY = 'schedule_holiday_data_v1';
 const DELETE_PW_KEY = 'schedule_delete_pw';
+const DELETE_PW_SALT_KEY = 'schedule_delete_pw_salt';
 const DELETE_PW_HINT_KEY = 'schedule_delete_pw_hint';
 const DAY_NAMES = ['일','월','화','수','목','금','토'];
 let schedules = [];
@@ -2344,14 +2354,55 @@ document.getElementById('addBtn').addEventListener('click',()=>{
   openModal(null, fmtDate(refDate));
 });
 
-/* ---------- 완료 일정 삭제 비밀번호 ---------- */
+/* ---------- 완료 일정 삭제 비밀번호 (SHA-256 해시 저장) ---------- */
+function bufToHex(buf){
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+function genPwSalt(){
+  const arr = new Uint8Array(16);
+  crypto.getRandomValues(arr);
+  return bufToHex(arr.buffer);
+}
+async function hashPwWithSalt(pw, salt){
+  const enc = new TextEncoder().encode(salt + ':' + pw);
+  const digest = await crypto.subtle.digest('SHA-256', enc);
+  return bufToHex(digest);
+}
+// 저장된 값(해시 또는 구버전 평문)을 그대로 반환 - '등록 여부' 판단용으로만 사용
 function getDeletePw(){
   return localStorage.getItem(DELETE_PW_KEY) || '';
 }
-function setDeletePw(pw){
-  if(pw) localStorage.setItem(DELETE_PW_KEY, pw);
-  else localStorage.removeItem(DELETE_PW_KEY);
+function getDeletePwSalt(){
+  return localStorage.getItem(DELETE_PW_SALT_KEY) || '';
+}
+// 비밀번호를 해시로 변환하여 저장 (평문은 저장하지 않음)
+async function setDeletePw(pw){
+  if(pw){
+    const salt = genPwSalt();
+    const hash = await hashPwWithSalt(pw, salt);
+    localStorage.setItem(DELETE_PW_KEY, hash);
+    localStorage.setItem(DELETE_PW_SALT_KEY, salt);
+  }else{
+    localStorage.removeItem(DELETE_PW_KEY);
+    localStorage.removeItem(DELETE_PW_SALT_KEY);
+  }
   fsScheduleSave();
+}
+// 입력한 비밀번호가 저장된 해시와 일치하는지 확인.
+// 구버전(평문 저장) 데이터가 남아있으면 한 번은 평문 비교로 확인해주고, 그 즉시 해시로 자동 전환합니다.
+async function verifyDeletePw(inputPw){
+  const stored = getDeletePw();
+  if(!stored) return false;
+  const salt = getDeletePwSalt();
+  if(!salt){
+    if(inputPw === stored){
+      await setDeletePw(inputPw);
+      return true;
+    }
+    return false;
+  }
+  const hash = await hashPwWithSalt(inputPw, salt);
+  return hash === stored;
 }
 function getDeletePwHint(){
   return localStorage.getItem(DELETE_PW_HINT_KEY) || '';
@@ -2404,7 +2455,8 @@ document.getElementById('pwSaveBtn').addEventListener('click', async ()=>{
       alert('현재 비밀번호를 입력해주세요.');
       return;
     }
-    if(current !== existingPw){
+    const ok = await verifyDeletePw(current);
+    if(!ok){
       alert('현재 비밀번호가 일치하지 않습니다.');
       return;
     }
@@ -2419,25 +2471,25 @@ document.getElementById('pwSaveBtn').addEventListener('click', async ()=>{
     alert('비밀번호가 일치하지 않습니다.');
     return;
   }
-  setDeletePw(pw1);
+  await setDeletePw(pw1);
   setDeletePwHint(document.getElementById('pwHint').value.trim());
   closePwModal();
   alert('비밀번호가 등록되었습니다.');
 });
 
 document.getElementById('pwRemoveBtn').addEventListener('click', async ()=>{
-  const existingPw = getDeletePw();
   const current = document.getElementById('pwCurrent').value;
   if(!current){
     alert('현재 비밀번호를 입력해주세요.');
     return;
   }
-  if(current !== existingPw){
+  const ok = await verifyDeletePw(current);
+  if(!ok){
     alert('현재 비밀번호가 일치하지 않습니다.');
     return;
   }
   if(confirm('삭제 비밀번호를 해제하시겠습니까? 이후 완료된 일정도 비밀번호 없이 삭제할 수 있습니다.')){
-    setDeletePw('');
+    await setDeletePw('');
     setDeletePwHint('');
     closePwModal();
   }
@@ -2471,10 +2523,14 @@ function closePwVerifyModal(result){
     resolve(result);
   }
 }
-function submitPwVerify(){
+async function submitPwVerify(){
   const input = document.getElementById('pwVerifyInput').value;
-  const stored = getDeletePw();
-  if(input && input === stored){
+  if(!input){
+    alert('비밀번호가 일치하지 않습니다.');
+    return;
+  }
+  const ok = await verifyDeletePw(input);
+  if(ok){
     closePwVerifyModal(true);
   }else{
     alert('비밀번호가 일치하지 않습니다.');
