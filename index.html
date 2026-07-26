@@ -1419,7 +1419,7 @@ let searchQuery = '';
 let searchMatchEls = [];
 let searchCurrentIndex = -1;
 let holidays = {}; 
-let currentView = '3day';
+let currentView = (window.innerWidth <= 480) ? 'day' : '3day'; // 모바일 화면은 처음엔 일간, 그 외엔 3일간으로 시작
 let refDate = new Date(); 
 
 function load(){
