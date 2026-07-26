@@ -33,6 +33,32 @@
     --radius:10px;
     --font: 'Pretendard', -apple-system, BlinkMacSystemFont, "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
   }
+  .load-past-banner{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap:10px;
+    flex-wrap:wrap;
+    padding:10px 16px;
+    margin:0 0 12px;
+    background:var(--accent-soft);
+    border:1px solid var(--accent);
+    border-radius:var(--radius);
+    color:var(--ink);
+    font-size:13px;
+  }
+  .load-past-btn{
+    border:none;
+    background:var(--accent);
+    color:#fff;
+    font-size:12.5px;
+    font-weight:600;
+    padding:6px 14px;
+    border-radius:999px;
+    cursor:pointer;
+  }
+  .load-past-btn:hover{ filter:brightness(1.05); }
+  .load-past-btn:disabled{ opacity:0.6; cursor:default; }
   *{box-sizing:border-box;}
   body{
     margin:0;
@@ -788,7 +814,7 @@
     #todayBtn{order:3;}
     #pwBtn{order:5;}
     #excelExportBtn{display:none;}
-    #excelCalendarExportBtn{display:none;}
+    #diaryFillBtn{display:none;}
     #excelImportBtn{display:none;}
     #printBtn{display:none;}
     .searchbox{order:6;}
@@ -865,11 +891,12 @@
         <button class="iconbtn" id="nextBtn">›</button>
       </div>
       <button class="todaybtn" id="todayBtn">오늘</button>
+      <button class="iconbtn" id="diaryFillBtn" title="다이어리 양식에 채우기">📔</button>
       <button class="iconbtn" id="printBtn" title="현재 화면 인쇄">🖨️</button>
-      <button class="iconbtn" id="excelCalendarExportBtn" title="Excel로 내보내기 (달력형태)">🗓️</button>
       <button class="iconbtn" id="pwBtn" title="완료 일정 삭제 비밀번호 등록">🔒</button>
       <button class="iconbtn" id="excelExportBtn" title="Excel로 내보내기">📤</button>
       <button class="iconbtn" id="excelImportBtn" title="Excel에서 가져오기">📥</button>
+      <input type="file" id="diaryFillInput" accept=".xlsx,.xls" style="display:none;">
       <input type="file" id="excelImportInput" accept=".xlsx,.xls" style="display:none;">
       <button class="addbtn" id="addBtn">+ 일정 추가</button>
     </div>
@@ -1078,6 +1105,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
@@ -1106,6 +1134,8 @@ let fsUnsub = null;
 let fsApplyingRemote = false;
 let fsSaveTimer = null;
 let lastSyncedSnapshot = {}; // 마지막으로 Firestore와 동기화된 일정 상태 (id -> JSON 문자열), 변경분만 골라 쓰기 위한 기준점
+let syncCutoffDateStr = ''; // 이 날짜(지난달 1일) 이후는 항상 실시간으로 불러와져 있음
+let loadedPastMonths = new Set(); // 온디맨드로 이미 불러온 과거 '연-월'(YYYY-MM) 목록
 
 function fsDocRef(){
   return fbDb.collection(FS_COLLECTION).doc(FS_DOC_ID);
@@ -1157,6 +1187,8 @@ document.getElementById('logoutBtn').addEventListener('click', async ()=>{
 fbAuth.onAuthStateChanged(async (user)=>{
   if(fsUnsub){ fsUnsub(); fsUnsub = null; }
   if(!user){
+    syncCutoffDateStr = '';
+    loadedPastMonths = new Set();
     showLoginOverlay();
     return;
   }
@@ -1172,6 +1204,11 @@ fbAuth.onAuthStateChanged(async (user)=>{
 // 메타(main 문서)와 일정(schedules 서브컬렉션) 각각에 리스너를 한 번만 붙이고,
 // 그 "첫 응답"을 초기 로드 데이터로 재활용한다 (get() + onSnapshot() 이중 읽기 방지)
 function fsStartSync(){
+  const now = new Date();
+  const cutoffDate = new Date(now.getFullYear(), now.getMonth()-1, 1); // 지난달 1일
+  syncCutoffDateStr = `${cutoffDate.getFullYear()}-${String(cutoffDate.getMonth()+1).padStart(2,'0')}-01`;
+  loadedPastMonths = new Set();
+
   let metaLoadedOnce = false;
   let schedulesLoadedOnce = false;
   let pendingMetaExists = false;
@@ -1183,11 +1220,17 @@ function fsStartSync(){
     fsApplyingRemote = true;
     let migratedFromOldFormat = false;
 
-    if(pendingMetaExists && Array.isArray(pendingMetaData.schedules) && pendingMetaData.schedules.length > 0 && schedules.length === 0){
-      // 구버전 호환: main 문서에 일정이 배열 필드로 남아있고 서브컬렉션이 비어있으면 자동 마이그레이션
+    if(pendingMetaExists && Array.isArray(pendingMetaData.schedules) && pendingMetaData.schedules.length > 0){
+      // 구버전 호환: main 문서에 일정이 배열 필드로 남아있으면 자동 마이그레이션
+      // (지난달 1일 이후만 걸러서 불러오는 구조로 바뀌었으므로, "서브컬렉션이 비어있는지"가 아니라
+      //  "구버전 배열 필드가 아직 남아있는지"만으로 판단한다)
       schedules = pendingMetaData.schedules;
       migratedFromOldFormat = true;
       lastSyncedSnapshot = {}; // 다음 동기화 때 전부 새로 쓰도록 기준점을 비워둠
+      // 마이그레이션으로 함께 들어온 과거 달들은 이미 다 불러온 것으로 표시 (배너가 불필요하게 뜨지 않도록)
+      schedules.forEach(s=>{
+        if(s.date && s.date < syncCutoffDateStr) loadedPastMonths.add(s.date.slice(0,7));
+      });
     }
 
     localStorage.setItem(STORAGE_KEY, JSON.stringify(schedules));
@@ -1242,7 +1285,7 @@ function fsStartSync(){
     console.error('Firestore 실시간 동기화 오류(설정)', err);
   });
 
-  const scheduleUnsub = fsSchedulesRef().onSnapshot((snap)=>{
+  const scheduleUnsub = fsSchedulesRef().where('date', '>=', syncCutoffDateStr).onSnapshot((snap)=>{
     fsApplyingRemote = true;
     if(!schedulesLoadedOnce){
       const loaded = [];
@@ -1430,6 +1473,81 @@ function schedulesForDate(dateStr){
   });
 }
 
+/* ---------- 과거 달 온디맨드 불러오기 ---------- */
+function isDateStrCovered(dateStr){
+  if(!syncCutoffDateStr) return true; // 로그인 전 등 아직 커트오프가 없으면 일단 통과
+  return dateStr >= syncCutoffDateStr || loadedPastMonths.has(dateStr.slice(0,7));
+}
+
+// [startDate, endDate] 범위(포함) 안에서 아직 불러오지 않은 '연-월'을 순서대로, 중복 없이 뽑아낸다
+function getUncoveredMonthsInRange(startDate, endDate){
+  const result = [];
+  const seen = new Set();
+  let cur = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
+  const end = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
+  while(cur <= end){
+    const dateStr = fmtDate(cur);
+    if(!isDateStrCovered(dateStr)){
+      const ym = dateStr.slice(0,7);
+      if(!seen.has(ym)){
+        seen.add(ym);
+        result.push({ y: cur.getFullYear(), m: cur.getMonth()+1, ym });
+      }
+    }
+    cur = addDays(cur, 1);
+  }
+  return result;
+}
+
+// 지정한 '연-월' 목록을 Firestore에서 실제로 읽어와 로컬 schedules에 병합
+async function loadMonthsFromFirestore(monthsList){
+  for(const info of monthsList){
+    if(loadedPastMonths.has(info.ym)) continue;
+    const startStr = `${info.y}-${String(info.m).padStart(2,'0')}-01`;
+    const lastDay = new Date(info.y, info.m, 0).getDate();
+    const endStr = `${info.y}-${String(info.m).padStart(2,'0')}-${String(lastDay).padStart(2,'0')}`;
+    const snap = await fsSchedulesRef().where('date','>=',startStr).where('date','<=',endStr).get();
+    fsApplyingRemote = true;
+    snap.forEach(doc=>{
+      const data = Object.assign({id: doc.id}, doc.data());
+      const idx = schedules.findIndex(s=>s.id===doc.id);
+      if(idx !== -1) schedules[idx] = data;
+      else schedules.push(data);
+      lastSyncedSnapshot[doc.id] = JSON.stringify(data);
+    });
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(schedules));
+    fsApplyingRemote = false;
+    loadedPastMonths.add(info.ym);
+  }
+}
+
+// 현재 보고 있는 화면(startDate~endDate)에 아직 안 불러온 과거 달이 있으면 안내 배너를 맨 위에 붙인다
+function renderLoadBanner(root, startDate, endDate){
+  const uncovered = getUncoveredMonthsInRange(startDate, endDate);
+  if(uncovered.length === 0) return;
+  const label = uncovered.length===1
+    ? `${uncovered[0].y}년 ${uncovered[0].m}월`
+    : `${uncovered[0].y}년 ${uncovered[0].m}월 ~ ${uncovered[uncovered.length-1].y}년 ${uncovered[uncovered.length-1].m}월`;
+  const banner = document.createElement('div');
+  banner.className = 'load-past-banner';
+  banner.innerHTML = `<span>📥 ${escapeHtml(label)} 일정은 아직 불러오지 않았습니다.</span> <button type="button" class="load-past-btn">이 기간 일정 불러오기</button>`;
+  const btn = banner.querySelector('.load-past-btn');
+  btn.addEventListener('click', async ()=>{
+    btn.disabled = true;
+    btn.textContent = '불러오는 중...';
+    try{
+      await loadMonthsFromFirestore(uncovered);
+      render();
+    }catch(e){
+      console.error(e);
+      alert('일정을 불러오는 중 오류가 발생했습니다.');
+      btn.disabled = false;
+      btn.textContent = '이 기간 일정 불러오기';
+    }
+  });
+  root.insertBefore(banner, root.firstChild);
+}
+
 /* ---------- drag reorder ---------- */
 let draggedId = null;
 let draggedDate = null;
@@ -1589,6 +1707,7 @@ function renderDay(root){
   }
   html += `</div></div></div>`;
   root.innerHTML = html;
+  renderLoadBanner(root, refDate, refDate);
   attachItemHandlers(root);
   attachDateNumberHandlers(root, '.dnum', '.daycol');
   root.querySelectorAll('.daybody').forEach(el=>{
@@ -1637,6 +1756,7 @@ function render3Day(root){
   }
   html += '</div>';
   root.innerHTML = html;
+  renderLoadBanner(root, start, addDays(start,2));
 
   attachItemHandlers(root);
   attachDateNumberHandlers(root, '.dnum', '.daycol');
@@ -1683,6 +1803,7 @@ function renderWeek(root){
   }
   html += '</div>';
   root.innerHTML = html;
+  renderLoadBanner(root, start, end);
   attachItemHandlers(root);
   attachDateNumberHandlers(root, '.dnum', '.daycol');
   root.querySelectorAll('.daybody').forEach(el=>{
@@ -1841,6 +1962,7 @@ function renderMonth(root){
   }
   html += '</div></div>';
   root.innerHTML = html;
+  renderLoadBanner(root, firstOfMonth, new Date(y, m+1, 0));
 
   root.querySelectorAll('.mcell').forEach(el=>{
     el.addEventListener('click',()=>{
@@ -1915,6 +2037,7 @@ function renderYear(root){
   }
   html += '</div>';
   root.innerHTML = html;
+  renderLoadBanner(root, new Date(y,0,1), new Date(y,11,31));
 
   root.querySelectorAll('.ymonth').forEach(el=>{
     el.addEventListener('click',()=>{
@@ -2723,67 +2846,236 @@ document.getElementById('excelExportBtn').addEventListener('click', ()=>{
   XLSX.writeFile(wb, `일정목록_${fmtDate(new Date())}.xlsx`);
 });
 
-document.getElementById('excelCalendarExportBtn').addEventListener('click', ()=>{
-  if(typeof XLSX==='undefined'){
-    alert('Excel 라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인해주세요.');
+/* ---------- 다이어리 양식(1월~12월 시트, 요일별 칸에 '.' 로 표시된 개인 다이어리)에 채우기 ----------
+   주의: 일반 XLSX 라이브러리(SheetJS 무료판)로 셀을 고치면 서식(글꼴/배경색/줄바꿈 등)이 깨지는 문제가 있어,
+   여기서는 xlsx 내부의 XML을 JSZip으로 직접 열어 필요한 셀의 텍스트만 서지컬하게 바꾸고 나머지는 그대로 둔다. */
+document.getElementById('diaryFillBtn').addEventListener('click', ()=>{
+  if(typeof JSZip==='undefined'){
+    alert('필요한 라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인해주세요.');
     return;
   }
-  if(schedules.length===0){
-    alert('내보낼 일정이 없습니다.');
-    return;
-  }
+  document.getElementById('diaryFillInput').click();
+});
 
-  // 일정이 있는 연-월(YYYY-MM) 목록을 오름차순으로 추출 → 월별로 시트 하나씩 생성
-  const monthSet = new Set();
-  schedules.forEach(s=>{
-    if(s.date && /^\d{4}-\d{2}-\d{2}$/.test(s.date)) monthSet.add(s.date.slice(0,7));
+function escapeXmlText(s){
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function stripXmlTags(s){
+  return s.replace(/<[^>]*>/g, '');
+}
+function findCellXml(sheetXml, ref){
+  const re = new RegExp(`<c r="${ref}"[^>]*?(?:/>|>[\\s\\S]*?</c>)`);
+  const m = sheetXml.match(re);
+  return m ? m[0] : null;
+}
+function getCellTextFromXml(cellXml, sharedStrings){
+  if(/t="inlineStr"/.test(cellXml)){
+    const m = cellXml.match(/<t[^>]*>([\s\S]*?)<\/t>/);
+    return m ? m[1] : '';
+  }
+  if(/t="s"/.test(cellXml)){
+    const m = cellXml.match(/<v>(\d+)<\/v>/);
+    if(!m) return null;
+    return sharedStrings[parseInt(m[1],10)];
+  }
+  return null;
+}
+
+// 파일 안의 "N월" 시트들을 훑어서, 실제로 채워넣을 수 있는 (시트명/월/연도) 목록만 뽑아낸다 (아직 아무것도 고치지 않음)
+async function scanDiaryTemplate(zip){
+  const workbookXml = await zip.file('xl/workbook.xml').async('string');
+  const sheetTags = workbookXml.match(/<sheet [^>]*\/>/g) || [];
+  const nameToRid = {};
+  sheetTags.forEach(tag=>{
+    const nameM = tag.match(/name="([^"]*)"/);
+    const ridM = tag.match(/r:id="([^"]*)"/);
+    if(nameM && ridM) nameToRid[nameM[1]] = ridM[1];
   });
-  const months = Array.from(monthSet).sort();
 
-  const wb = XLSX.utils.book_new();
+  const relsXml = await zip.file('xl/_rels/workbook.xml.rels').async('string');
+  const relTags = relsXml.match(/<Relationship [^>]*\/>/g) || [];
+  const ridToTarget = {};
+  relTags.forEach(tag=>{
+    const idM = tag.match(/Id="([^"]*)"/);
+    const targetM = tag.match(/Target="([^"]*)"/);
+    if(idM && targetM) ridToTarget[idM[1]] = targetM[1];
+  });
 
-  months.forEach(ym=>{
-    const [y, m] = ym.split('-').map(Number);
-    const daysInMonth = new Date(y, m, 0).getDate();
-    const startWeekday = new Date(y, m-1, 1).getDay(); // 0=일요일
+  let sharedStrings = [];
+  const ssFile = zip.file('xl/sharedStrings.xml');
+  if(ssFile){
+    const ssXml = await ssFile.async('string');
+    const items = ssXml.match(/<si>[\s\S]*?<\/si>/g) || [];
+    sharedStrings = items.map(it=>stripXmlTags(it));
+  }
 
-    const aoa = [];
-    aoa.push([`${y}년 ${m}월`, '', '', '', '', '', '']);
-    aoa.push(['일','월','화','수','목','금','토']);
+  const monthSheetRe = /^(\d{1,2})월$/;
+  const sheets = []; // { sheetName, month, year, fullPath }
 
-    const weeks = [];
-    let week = new Array(7).fill('');
-    let cursor = startWeekday;
-    for(let day = 1; day <= daysInMonth; day++){
-      const dateStr = `${y}-${String(m).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
-      const items = schedulesForDate(dateStr);
-      const lines = items.map(it=>{
-        const timePart = it.time ? it.time + ' ' : '';
-        const donePart = it.done ? '✔ ' : '';
-        return `${timePart}${donePart}${it.title}`;
-      });
-      week[cursor] = String(day) + (lines.length ? '\n' + lines.join('\n') : '');
-      cursor++;
-      if(cursor > 6){
-        weeks.push(week);
-        week = new Array(7).fill('');
-        cursor = 0;
+  for(const sheetName of Object.keys(nameToRid)){
+    const m = sheetName.match(monthSheetRe);
+    if(!m) continue; // '만년달력' 등 월별 시트가 아니면 건너뜀
+    const month = parseInt(m[1], 10);
+    const rid = nameToRid[sheetName];
+    const target = ridToTarget[rid];
+    if(!target) continue;
+    const fullPath = target.startsWith('/') ? target.slice(1) : ('xl/' + target);
+    const sheetFile = zip.file(fullPath);
+    if(!sheetFile) continue;
+    const sheetXml = await sheetFile.async('string');
+
+    const c2 = findCellXml(sheetXml, 'C2');
+    if(!c2) continue;
+    let year;
+    const yearText = getCellTextFromXml(c2, sharedStrings);
+    if(yearText != null){
+      year = parseInt(yearText, 10);
+    }else{
+      const vm = c2.match(/<v>([\d.]+)<\/v>/);
+      if(!vm) continue;
+      year = parseInt(vm[1], 10);
+    }
+    if(!year) continue; // 연도 입력 칸(C2)이 없거나 비어있는 시트는 건너뜀
+
+    sheets.push({ sheetName, month, year, fullPath });
+  }
+
+  return { sharedStrings, sheets };
+}
+
+// 스캔 결과 중 지정된 시트 하나에만 실제로 일정을 채워 넣는다
+async function fillDiarySheet(zip, ctx, sheetInfo){
+  const { sharedStrings } = ctx;
+  const { fullPath, month, year } = sheetInfo;
+  const overflowNotes = [];
+  let filledCount = 0;
+  let overflowCount = 0;
+
+  const sheetFile = zip.file(fullPath);
+  let sheetXml = await sheetFile.async('string');
+
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const startWeekday = new Date(year, month-1, 1).getDay(); // 0=일요일
+  let sheetChanged = false;
+
+  // 지정한 셀의 서식(s=스타일번호)은 그대로 두고, 텍스트만 인라인 문자열로 써넣는 헬퍼
+  function writeCellText(ref, newText){
+    const cellXml = findCellXml(sheetXml, ref);
+    if(!cellXml) return false;
+    const styleM = cellXml.match(/\ss="(\d+)"/);
+    const styleAttr = styleM ? ` s="${styleM[1]}"` : '';
+    const newCellXml = `<c r="${ref}"${styleAttr} t="inlineStr"><is><t xml:space="preserve">${escapeXmlText(newText)}</t></is></c>`;
+    sheetXml = sheetXml.replace(cellXml, newCellXml);
+    sheetChanged = true;
+    return true;
+  }
+
+  for(let day = 1; day <= daysInMonth; day++){
+    const dateStr = `${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+    const items = schedulesForDate(dateStr);
+    if(items.length === 0) continue;
+
+    const absoluteIndex = startWeekday + (day - 1);
+    const weekBlock = Math.floor(absoluteIndex / 7);
+    const colInWeek = absoluteIndex % 7; // 0(일)~6(토)
+    const dayNumberRow = 5 + weekBlock * 8; // 날짜 행: 5,13,21,29,37,45
+    const colLetter = String.fromCharCode('B'.charCodeAt(0) + colInWeek); // B~H
+    const lastSlotRef = colLetter + (dayNumberRow + 7); // 그 날짜의 마지막(7번째) 칸 — 칸이 부족하면 여기에 이어붙임
+
+    let slot = 0;
+    for(const it of items){
+      const newText = '.' + it.title + (it.company ? ' - ' + it.company : '');
+      let placed = false;
+      while(slot < 7){
+        const targetRow = dayNumberRow + 1 + slot;
+        const ref = colLetter + targetRow;
+        slot++;
+        const cellXml = findCellXml(sheetXml, ref);
+        if(!cellXml) continue;
+        const text = getCellTextFromXml(cellXml, sharedStrings);
+        // 빈 칸 표시는 정확히 '.' 한 글자 — 이미 채워진(다른 텍스트/공휴일 표시 등) 칸은 건드리지 않음
+        if(text === '.'){
+          writeCellText(ref, newText);
+          filledCount++;
+          placed = true;
+          break;
+        }
+      }
+      if(!placed){
+        // 7칸이 이미 모두 차 있는 경우: 건너뛰지 않고 마지막 칸에 줄바꿈으로 이어붙임
+        const cellXml = findCellXml(sheetXml, lastSlotRef);
+        const currentText = cellXml ? (getCellTextFromXml(cellXml, sharedStrings) || '') : '';
+        writeCellText(lastSlotRef, currentText + '\n' + newText);
+        filledCount++;
+        overflowCount++;
+        overflowNotes.push(`${dateStr} : "${it.title}"`);
       }
     }
-    if(cursor !== 0) weeks.push(week);
-    weeks.forEach(w=>aoa.push(w));
+  }
 
-    const ws = XLSX.utils.aoa_to_sheet(aoa);
-    ws['!cols'] = new Array(7).fill({wch:22});
-    ws['!merges'] = [{ s:{r:0,c:0}, e:{r:0,c:6} }]; // 제목 행("YYYY년 M월")을 7칸에 걸쳐 병합
-    const rowHeights = [{hpx:22},{hpx:20}];
-    weeks.forEach(()=>rowHeights.push({hpx:95})); // 셀 안에 일정이 여러 줄 들어가므로 주(week) 행은 넉넉하게
-    ws['!rows'] = rowHeights;
+  if(sheetChanged){
+    zip.file(fullPath, sheetXml);
+  }
 
-    XLSX.utils.book_append_sheet(wb, ws, ym); // 시트명 'YYYY-MM' (특수문자 없어 안전)
-  });
+  return { warnings: overflowNotes, filledCount, overflowCount };
+}
 
-  XLSX.writeFile(wb, `일정달력_${fmtDate(new Date())}.xlsx`);
+document.getElementById('diaryFillInput').addEventListener('change', (e)=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = async (evt)=>{
+    try{
+      const zip = await JSZip.loadAsync(evt.target.result);
+      const ctx = await scanDiaryTemplate(zip);
+
+      if(ctx.sheets.length === 0){
+        alert('이 파일에서 "N월" 형식의 시트를 찾지 못했습니다. 올바른 다이어리 양식 파일인지 확인해주세요.');
+        return;
+      }
+
+      const sortedSheets = ctx.sheets.slice().sort((a,b)=> a.year - b.year || a.month - b.month);
+      const listStr = sortedSheets.map(s=>`${s.year}년 ${s.month}월`).join(', ');
+      const now = new Date();
+      const defaultGuess = sortedSheets.find(s=>s.year===now.getFullYear() && s.month===now.getMonth()+1) || sortedSheets[0];
+
+      const input = prompt(`이 파일에서 찾은 달: ${listStr}\n\n채워넣을 달을 숫자로만 입력해주세요 (예: 7)`, String(defaultGuess.month));
+      if(input === null) return; // 취소
+
+      const targetMonth = parseInt(String(input).trim(), 10);
+      const matches = sortedSheets.filter(s=>s.month === targetMonth);
+      if(matches.length === 0){
+        alert(`"${input}"에 해당하는 달을 이 파일에서 찾지 못했습니다.\n찾은 달: ${listStr}`);
+        return;
+      }
+      const targetSheet = matches[0]; // 같은 월이 여러 연도로 존재하면 그중 첫 번째 사용
+
+      const result = await fillDiarySheet(zip, ctx, targetSheet);
+
+      const outBlob = await zip.generateAsync({type:'blob'});
+      const outName = `${file.name.replace(/\.xlsx$/i,'')}_${targetSheet.year}-${String(targetSheet.month).padStart(2,'0')}_채움_${fmtDate(new Date())}.xlsx`;
+      const url = URL.createObjectURL(outBlob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = outName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(()=>URL.revokeObjectURL(url), 3000);
+
+      let msg = `${targetSheet.year}년 ${targetSheet.month}월에 ${result.filledCount}건의 일정을 채워 넣었습니다.`;
+      if(result.overflowCount > 0){
+        msg += `\n\n다만 ${result.overflowCount}건은 그 날짜의 칸(7칸)이 이미 다 차 있어서, 건너뛰지 않고 마지막 칸에 줄바꿈으로 이어붙였습니다:\n` + result.warnings.slice(0,10).join('\n') + (result.warnings.length>10 ? `\n... 외 ${result.warnings.length-10}건` : '');
+      }
+      alert(msg);
+    }catch(err){
+      console.error(err);
+      alert('다이어리 파일을 읽는 중 오류가 발생했습니다. 파일 형식을 확인해주세요.');
+    }finally{
+      e.target.value = '';
+    }
+  };
+  reader.readAsArrayBuffer(file);
 });
 
 document.getElementById('excelImportBtn').addEventListener('click', ()=>{
