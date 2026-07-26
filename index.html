@@ -3063,7 +3063,7 @@ document.getElementById('diaryFillInput').addEventListener('change', (e)=>{
 
       const result = await fillDiarySheet(zip, ctx, targetSheet);
 
-      const outBlob = await zip.generateAsync({type:'blob'});
+      const outBlob = await zip.generateAsync({type:'blob', compression:'DEFLATE', compressionOptions:{level:6}});
       const outName = `${file.name.replace(/\.xlsx$/i,'')}_${targetSheet.year}-${String(targetSheet.month).padStart(2,'0')}_채움_${fmtDate(new Date())}.xlsx`;
       const url = URL.createObjectURL(outBlob);
       const a = document.createElement('a');
