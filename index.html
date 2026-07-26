@@ -808,8 +808,13 @@
     .brand .sub{font-size:13px;}
     .controls{width:100%; justify-content:center;}
     .viewtabs{flex:0 0 100%; order:1; justify-content:center;}
-    .viewtabs button:not([data-view="day"]){display:none;}
-    .viewtabs button[data-view="day"]{flex:1; text-align:center;}
+    .viewtabs button[data-view="week"],
+    .viewtabs button[data-view="month"],
+    .viewtabs button[data-view="year"]{display:none;}
+    .viewtabs button[data-view="day"],
+    .viewtabs button[data-view="3day"]{display:none;}
+    .viewtabs button[data-view="day"].active,
+    .viewtabs button[data-view="3day"].active{display:block; flex:1; text-align:center;}
     .navgroup{order:2;}
     #todayBtn{order:3;}
     #pwBtn{order:5;}
@@ -866,7 +871,7 @@
     <div class="controls">
       <div class="user-badge" id="userBadge" style="display:none;">
         <span class="dot"></span><span id="userBadgeEmail"></span>
-        <button class="iconbtn" id="logoutBtn" title="로그아웃" style="width:26px;height:26px;">⎋</button>
+        <button class="todaybtn" id="logoutBtn" title="로그아웃">로그아웃</button>
       </div>
       <div class="viewtabs">
         <button data-view="day">일간</button>
@@ -2531,7 +2536,13 @@ document.getElementById('holidaySaveBtn').addEventListener('click',()=>{
 /* ---------- nav ---------- */
 document.querySelectorAll('.viewtabs button').forEach(b=>{
   b.addEventListener('click',()=>{
-    currentView = b.dataset.view;
+    const isMobile = window.innerWidth <= MOBILE_VIEW_BREAKPOINT;
+    if(isMobile && (b.dataset.view==='day' || b.dataset.view==='3day')){
+      // 모바일에서는 일간/3일간 중 하나만 보이므로, 누르면 서로 토글
+      currentView = (currentView==='day') ? '3day' : 'day';
+    }else{
+      currentView = b.dataset.view;
+    }
     render();
   });
 });
@@ -3158,10 +3169,10 @@ document.getElementById('excelImportInput').addEventListener('change', (e)=>{
 load();
 render();
 
-/* 휴대폰 해상도(가로 480px 이하)에서는 일간 뷰만 노출되므로, 자동으로 일간 뷰로 전환 */
+/* 휴대폰 해상도(가로 480px 이하)에서는 일간/3일간 뷰만 노출되므로, 그 외 뷰면 자동으로 일간 뷰로 전환 */
 const MOBILE_VIEW_BREAKPOINT = 480;
 function enforceMobileView(){
-  if(window.innerWidth <= MOBILE_VIEW_BREAKPOINT && currentView !== 'day'){
+  if(window.innerWidth <= MOBILE_VIEW_BREAKPOINT && currentView !== 'day' && currentView !== '3day'){
     currentView = 'day';
     render();
   }
