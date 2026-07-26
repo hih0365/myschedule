@@ -788,6 +788,7 @@
     #todayBtn{order:3;}
     #pwBtn{order:5;}
     #excelExportBtn{display:none;}
+    #excelCalendarExportBtn{display:none;}
     #excelImportBtn{display:none;}
     #printBtn{display:none;}
     .searchbox{order:6;}
@@ -865,6 +866,7 @@
       </div>
       <button class="todaybtn" id="todayBtn">오늘</button>
       <button class="iconbtn" id="printBtn" title="현재 화면 인쇄">🖨️</button>
+      <button class="iconbtn" id="excelCalendarExportBtn" title="Excel로 내보내기 (달력형태)">🗓️</button>
       <button class="iconbtn" id="pwBtn" title="완료 일정 삭제 비밀번호 등록">🔒</button>
       <button class="iconbtn" id="excelExportBtn" title="Excel로 내보내기">📤</button>
       <button class="iconbtn" id="excelImportBtn" title="Excel에서 가져오기">📥</button>
@@ -1164,20 +1166,52 @@ fbAuth.onAuthStateChanged(async (user)=>{
     return;
   }
   hideLoginOverlay(user);
-  await fsInitialLoad();
-  fsListen();
+  fsStartSync();
 });
 
-async function fsInitialLoad(){
-  try{
-    const metaSnap = await fsDocRef().get();
-    const schedSnap = await fsSchedulesRef().get();
+// 메타(main 문서)와 일정(schedules 서브컬렉션) 각각에 리스너를 한 번만 붙이고,
+// 그 "첫 응답"을 초기 로드 데이터로 재활용한다 (get() + onSnapshot() 이중 읽기 방지)
+function fsStartSync(){
+  let metaLoadedOnce = false;
+  let schedulesLoadedOnce = false;
+  let pendingMetaExists = false;
+  let pendingMetaData = null;
+
+  async function afterBothLoaded(){
+    if(!(metaLoadedOnce && schedulesLoadedOnce)) return;
 
     fsApplyingRemote = true;
     let migratedFromOldFormat = false;
 
-    if(metaSnap.exists){
-      const data = metaSnap.data() || {};
+    if(pendingMetaExists && Array.isArray(pendingMetaData.schedules) && pendingMetaData.schedules.length > 0 && schedules.length === 0){
+      // 구버전 호환: main 문서에 일정이 배열 필드로 남아있고 서브컬렉션이 비어있으면 자동 마이그레이션
+      schedules = pendingMetaData.schedules;
+      migratedFromOldFormat = true;
+      lastSyncedSnapshot = {}; // 다음 동기화 때 전부 새로 쓰도록 기준점을 비워둠
+    }
+
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(schedules));
+    localStorage.setItem(HOLIDAY_KEY, JSON.stringify(holidays));
+    fsApplyingRemote = false;
+    render();
+
+    if(!pendingMetaExists){
+      // 완전히 처음 사용하는 경우: 로컬(localStorage)에 있던 기존 데이터를 그대로 Firestore에 업로드
+      await fsSaveNow();
+      await fsSyncSchedules();
+    }else if(migratedFromOldFormat){
+      // 구버전(배열 필드) → 신버전(서브컬렉션) 마이그레이션 실행 후, main 문서의 옛 필드는 정리
+      await fsSyncSchedules();
+      await fsDocRef().update({ schedules: firebase.firestore.FieldValue.delete() }).catch(e=>{
+        console.error('구버전 schedules 필드 정리 실패', e);
+      });
+    }
+  }
+
+  const metaUnsub = fsDocRef().onSnapshot((doc)=>{
+    const data = doc.exists ? (doc.data() || {}) : {};
+    fsApplyingRemote = true;
+    if(doc.exists){
       holidays = (data.holidays && typeof data.holidays === 'object') ? data.holidays : holidays;
       if(typeof data.deletePassword === 'string'){
         if(data.deletePassword) localStorage.setItem(DELETE_PW_KEY, data.deletePassword);
@@ -1191,88 +1225,51 @@ async function fsInitialLoad(){
         if(data.deletePasswordHint) localStorage.setItem(DELETE_PW_HINT_KEY, data.deletePasswordHint);
         else localStorage.removeItem(DELETE_PW_HINT_KEY);
       }
-
-      // 구버전 호환: main 문서에 일정이 배열 필드로 남아있고 서브컬렉션이 비어있으면 자동 마이그레이션
-      if(schedSnap.empty && Array.isArray(data.schedules) && data.schedules.length > 0){
-        schedules = data.schedules;
-        migratedFromOldFormat = true;
-      }
     }
+    localStorage.setItem(HOLIDAY_KEY, JSON.stringify(holidays));
 
-    if(!migratedFromOldFormat){
-      const loaded = [];
-      schedSnap.forEach(doc=>{ loaded.push(Object.assign({id: doc.id}, doc.data())); });
-      schedules = loaded;
-      lastSyncedSnapshot = snapshotSchedules(schedules);
+    if(!metaLoadedOnce){
+      metaLoadedOnce = true;
+      pendingMetaExists = doc.exists;
+      pendingMetaData = data;
+      fsApplyingRemote = false;
+      afterBothLoaded();
     }else{
-      // 마이그레이션 대상은 아직 서브컬렉션에 없는 상태이므로, 다음 동기화 때 전부 새로 쓰도록 기준점을 비워둠
-      lastSyncedSnapshot = {};
+      fsApplyingRemote = false;
+      render();
     }
-
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(schedules));
-    localStorage.setItem(HOLIDAY_KEY, JSON.stringify(holidays));
-    fsApplyingRemote = false;
-
-    if(!metaSnap.exists){
-      // 완전히 처음 사용하는 경우: 로컬(localStorage)에 있던 기존 데이터를 그대로 Firestore에 업로드
-      await fsSaveNow();
-      await fsSyncSchedules();
-    }else if(migratedFromOldFormat){
-      // 구버전(배열 필드) → 신버전(서브컬렉션) 마이그레이션 실행 후, main 문서의 옛 필드는 정리
-      await fsSyncSchedules();
-      await fsDocRef().update({ schedules: firebase.firestore.FieldValue.delete() }).catch(e=>{
-        console.error('구버전 schedules 필드 정리 실패', e);
-      });
-    }
-  }catch(e){
-    console.error('Firestore 초기 로드 실패', e);
-  }
-  render();
-}
-
-function fsListen(){
-  const metaUnsub = fsDocRef().onSnapshot((doc)=>{
-    if(!doc.exists) return;
-    const data = doc.data() || {};
-    fsApplyingRemote = true;
-    holidays = (data.holidays && typeof data.holidays === 'object') ? data.holidays : holidays;
-    localStorage.setItem(HOLIDAY_KEY, JSON.stringify(holidays));
-    if(typeof data.deletePassword === 'string'){
-      if(data.deletePassword) localStorage.setItem(DELETE_PW_KEY, data.deletePassword);
-      else localStorage.removeItem(DELETE_PW_KEY);
-    }
-    if(typeof data.deletePasswordSalt === 'string'){
-      if(data.deletePasswordSalt) localStorage.setItem(DELETE_PW_SALT_KEY, data.deletePasswordSalt);
-      else localStorage.removeItem(DELETE_PW_SALT_KEY);
-    }
-    if(typeof data.deletePasswordHint === 'string'){
-      if(data.deletePasswordHint) localStorage.setItem(DELETE_PW_HINT_KEY, data.deletePasswordHint);
-      else localStorage.removeItem(DELETE_PW_HINT_KEY);
-    }
-    render();
-    fsApplyingRemote = false;
   }, (err)=>{
     console.error('Firestore 실시간 동기화 오류(설정)', err);
   });
 
   const scheduleUnsub = fsSchedulesRef().onSnapshot((snap)=>{
     fsApplyingRemote = true;
-    snap.docChanges().forEach(change=>{
-      const id = change.doc.id;
-      if(change.type === 'removed'){
-        schedules = schedules.filter(s=>s.id!==id);
-        delete lastSyncedSnapshot[id];
-      }else{
-        const data = Object.assign({id}, change.doc.data());
-        const idx = schedules.findIndex(s=>s.id===id);
-        if(idx !== -1) schedules[idx] = data;
-        else schedules.push(data);
-        lastSyncedSnapshot[id] = JSON.stringify(data);
-      }
-    });
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(schedules));
-    render();
-    fsApplyingRemote = false;
+    if(!schedulesLoadedOnce){
+      const loaded = [];
+      snap.forEach(doc=>{ loaded.push(Object.assign({id: doc.id}, doc.data())); });
+      schedules = loaded;
+      lastSyncedSnapshot = snapshotSchedules(schedules);
+      schedulesLoadedOnce = true;
+      fsApplyingRemote = false;
+      afterBothLoaded();
+    }else{
+      snap.docChanges().forEach(change=>{
+        const id = change.doc.id;
+        if(change.type === 'removed'){
+          schedules = schedules.filter(s=>s.id!==id);
+          delete lastSyncedSnapshot[id];
+        }else{
+          const data = Object.assign({id}, change.doc.data());
+          const idx = schedules.findIndex(s=>s.id===id);
+          if(idx !== -1) schedules[idx] = data;
+          else schedules.push(data);
+          lastSyncedSnapshot[id] = JSON.stringify(data);
+        }
+      });
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(schedules));
+      fsApplyingRemote = false;
+      render();
+    }
   }, (err)=>{
     console.error('Firestore 실시간 동기화 오류(일정)', err);
   });
@@ -2724,6 +2721,69 @@ document.getElementById('excelExportBtn').addEventListener('click', ()=>{
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, '일정목록');
   XLSX.writeFile(wb, `일정목록_${fmtDate(new Date())}.xlsx`);
+});
+
+document.getElementById('excelCalendarExportBtn').addEventListener('click', ()=>{
+  if(typeof XLSX==='undefined'){
+    alert('Excel 라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인해주세요.');
+    return;
+  }
+  if(schedules.length===0){
+    alert('내보낼 일정이 없습니다.');
+    return;
+  }
+
+  // 일정이 있는 연-월(YYYY-MM) 목록을 오름차순으로 추출 → 월별로 시트 하나씩 생성
+  const monthSet = new Set();
+  schedules.forEach(s=>{
+    if(s.date && /^\d{4}-\d{2}-\d{2}$/.test(s.date)) monthSet.add(s.date.slice(0,7));
+  });
+  const months = Array.from(monthSet).sort();
+
+  const wb = XLSX.utils.book_new();
+
+  months.forEach(ym=>{
+    const [y, m] = ym.split('-').map(Number);
+    const daysInMonth = new Date(y, m, 0).getDate();
+    const startWeekday = new Date(y, m-1, 1).getDay(); // 0=일요일
+
+    const aoa = [];
+    aoa.push([`${y}년 ${m}월`, '', '', '', '', '', '']);
+    aoa.push(['일','월','화','수','목','금','토']);
+
+    const weeks = [];
+    let week = new Array(7).fill('');
+    let cursor = startWeekday;
+    for(let day = 1; day <= daysInMonth; day++){
+      const dateStr = `${y}-${String(m).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+      const items = schedulesForDate(dateStr);
+      const lines = items.map(it=>{
+        const timePart = it.time ? it.time + ' ' : '';
+        const donePart = it.done ? '✔ ' : '';
+        return `${timePart}${donePart}${it.title}`;
+      });
+      week[cursor] = String(day) + (lines.length ? '\n' + lines.join('\n') : '');
+      cursor++;
+      if(cursor > 6){
+        weeks.push(week);
+        week = new Array(7).fill('');
+        cursor = 0;
+      }
+    }
+    if(cursor !== 0) weeks.push(week);
+    weeks.forEach(w=>aoa.push(w));
+
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = new Array(7).fill({wch:22});
+    ws['!merges'] = [{ s:{r:0,c:0}, e:{r:0,c:6} }]; // 제목 행("YYYY년 M월")을 7칸에 걸쳐 병합
+    const rowHeights = [{hpx:22},{hpx:20}];
+    weeks.forEach(()=>rowHeights.push({hpx:95})); // 셀 안에 일정이 여러 줄 들어가므로 주(week) 행은 넉넉하게
+    ws['!rows'] = rowHeights;
+
+    XLSX.utils.book_append_sheet(wb, ws, ym); // 시트명 'YYYY-MM' (특수문자 없어 안전)
+  });
+
+  XLSX.writeFile(wb, `일정달력_${fmtDate(new Date())}.xlsx`);
 });
 
 document.getElementById('excelImportBtn').addEventListener('click', ()=>{
