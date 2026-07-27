@@ -2150,6 +2150,8 @@ document.getElementById('fHourPanel').addEventListener('click', (e)=>{
   const opt = e.target.closest('.hour-option');
   if(!opt) return;
   setHourValue(opt.dataset.val);
+  const minuteSel = document.getElementById('fMinute');
+  if(!minuteSel.value) minuteSel.value = '00';
   closeHourPanel();
 });
 document.addEventListener('click', (e)=>{
