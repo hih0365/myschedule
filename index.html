@@ -691,8 +691,13 @@
     gap:6px;
   }
   #timeSelectRow{
-    display:grid;
-    grid-template-columns: minmax(0,1fr) auto minmax(0,1fr);
+    display:flex;
+    align-items:center;
+  }
+  #timeSelectRow #fHourWrap, #timeSelectRow #fMinute{
+    flex:1 1 0;
+    min-width:0;
+    width:auto;
   }
   .time-row select, .time-row input[type=text]{
     flex:1;
@@ -727,7 +732,6 @@
   }
   .hour-select-wrap{
     position:relative;
-    flex:1;
     min-width:0;
   }
   .hour-select-btn{
