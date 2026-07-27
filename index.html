@@ -691,13 +691,17 @@
     gap:6px;
   }
   #timeSelectRow{
-    display:flex;
+    display:grid;
+    grid-template-columns: 1fr auto 1fr;
     align-items:center;
+    gap:6px;
   }
-  #timeSelectRow #fHourWrap, #timeSelectRow #fMinute{
-    flex:1 1 0;
+  #timeSelectRow #fHourWrap{
     min-width:0;
-    width:auto;
+  }
+  #timeSelectRow #fMinute{
+    width:100%;
+    min-width:0;
   }
   .time-row select, .time-row input[type=text]{
     flex:1;
@@ -2185,7 +2189,7 @@ function combineTimeFields(){
 
 document.getElementById('fTimeManualCheck').addEventListener('change', (e) => {
   const isManual = e.target.checked;
-  document.getElementById('timeSelectRow').style.display = isManual ? 'none' : 'flex';
+  document.getElementById('timeSelectRow').style.display = isManual ? 'none' : 'grid';
   document.getElementById('timeInputRow').style.display = isManual ? 'flex' : 'none';
   if(isManual) {
     document.getElementById('fTimeManual').focus();
@@ -2209,7 +2213,7 @@ function openModal(id, presetDate){
   document.getElementById('editId').value = id || '';
   
   document.getElementById('fTimeManualCheck').checked = false;
-  document.getElementById('timeSelectRow').style.display = 'flex';
+  document.getElementById('timeSelectRow').style.display = 'grid';
   document.getElementById('timeInputRow').style.display = 'none';
   document.getElementById('fTimeManual').value = '';
 
