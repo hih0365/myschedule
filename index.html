@@ -740,6 +740,28 @@
   }
   .time-sel-btn.has-value{color:var(--accent);font-weight:700;}
   .time-sel-btn:hover{border-color:var(--accent);}
+  .time-opt-row{
+    display:flex;
+    align-items:center;
+    gap:14px;
+    flex-wrap:wrap;
+  }
+  .time-container.allday-on #timeSelectRow,
+  .time-container.allday-on #timeInputRow{
+    opacity:0.45;
+    pointer-events:none;
+  }
+  .allday-badge{
+    display:inline-block;
+    background:var(--accent);
+    color:#fff;
+    font-size:10px;
+    font-weight:700;
+    border-radius:4px;
+    padding:1px 5px;
+    margin-right:4px;
+    vertical-align:1px;
+  }
 
   /* 아날로그 시계 스타일 시간 선택 모달 */
   .clock-modal{max-width:300px; padding:20px 20px 14px; text-align:center;}
@@ -1029,9 +1051,14 @@
           <div class="time-row" id="timeInputRow" style="display:none;">
             <input type="text" id="fTimeManual" placeholder="예: 14:35">
           </div>
-          <label class="time-manual-label">
-            <input type="checkbox" id="fTimeManualCheck" style="width:13px;height:13px;accent-color:var(--accent);"> 직접 입력하기
-          </label>
+          <div class="time-opt-row">
+            <label class="time-manual-label">
+              <input type="checkbox" id="fTimeManualCheck" style="width:13px;height:13px;accent-color:var(--accent);"> 직접 입력하기
+            </label>
+            <label class="time-manual-label">
+              <input type="checkbox" id="fAllDayCheck" style="width:13px;height:13px;accent-color:var(--accent);"> 종일
+            </label>
+          </div>
         </div>
       </div>
     </div>
@@ -1564,12 +1591,26 @@ function startOfWeek(d){
 }
 function addDays(d,n){ const nd=new Date(d); nd.setDate(nd.getDate()+n); return nd; }
 
+// 정렬 그룹: 0 = 종일(맨 위), 1 = 시간 있는 일정(시간순), 2 = 시간 없는 일정
+function scheduleGroup(s){
+  if(s.allDay) return 0;
+  if(s.time) return 1;
+  return 2;
+}
+// 새 일정이 자기 그룹(종일/일반)의 맨 아래에 붙도록 order 값을 계산
+function nextAllDayOrder(dateStr, isAllDay){
+  const g = isAllDay ? 0 : 2;
+  const orders = schedules
+    .filter(s=>s.date===dateStr && scheduleGroup(s)===g && typeof s.order==='number')
+    .map(s=>s.order);
+  return orders.length ? Math.max.apply(null, orders) + 1 : 0;
+}
 function schedulesForDate(dateStr){
   return schedules.filter(s=>s.date===dateStr).sort((a,b)=>{
     if(!!a.done !== !!b.done) return a.done ? 1 : -1;
-    const aHasTime = !!a.time, bHasTime = !!b.time;
-    if(aHasTime && bHasTime) return a.time.localeCompare(b.time);
-    if(aHasTime !== bHasTime) return aHasTime ? -1 : 1;
+    const ag = scheduleGroup(a), bg = scheduleGroup(b);
+    if(ag !== bg) return ag - bg;
+    if(ag === 1) return a.time.localeCompare(b.time);
     const ao = (typeof a.order === 'number') ? a.order : Infinity;
     const bo = (typeof b.order === 'number') ? b.order : Infinity;
     return ao - bo;
@@ -1656,16 +1697,21 @@ let draggedId = null;
 let draggedDate = null;
 
 function reorderSchedule(sourceId, targetId, insertAfter, dateStr){
-  const list = schedulesForDate(dateStr);
-  const fromIdx = list.findIndex(s=>s.id===sourceId);
+  const all = schedulesForDate(dateStr);
+  const src = all.find(s=>s.id===sourceId);
+  const tgt = all.find(s=>s.id===targetId);
+  if(!src || !tgt) return;
+  const g = scheduleGroup(src);
+  if(g === 1) return; // 시간 있는 일정은 같은 날짜 안에서 시간순 자동 정렬
+  if(scheduleGroup(tgt) !== g) return; // 종일 ↔ 시간/일반 일정 간 순서 변경은 무시 (그룹 내에서만 이동)
+  const group = all.filter(s=>scheduleGroup(s)===g);
+  const fromIdx = group.findIndex(s=>s.id===sourceId);
   if(fromIdx===-1) return;
-  if(list[fromIdx].time) return; 
-  const [moved] = list.splice(fromIdx,1);
-  const toIdx = list.findIndex(s=>s.id===targetId);
+  const [moved] = group.splice(fromIdx,1);
+  const toIdx = group.findIndex(s=>s.id===targetId);
   if(toIdx===-1) return;
-  const insertIdx = insertAfter ? toIdx+1 : toIdx;
-  list.splice(insertIdx,0,moved);
-  list.forEach((s,idx)=>{ s.order = idx; });
+  group.splice(insertAfter ? toIdx+1 : toIdx, 0, moved);
+  group.forEach((s,idx)=>{ s.order = idx; });
   save();
   render();
 }
@@ -1924,9 +1970,11 @@ function renderItem(it, viewType = 'day'){
   if(it.company) metaParts.push(escapeHtml(it.company));
   const meta = metaParts.join(' · ');
   
-  const timePrefix = it.time ? `<span style="color: var(--accent); margin-right: 4px;">${escapeHtml(it.time)}</span>` : '';
+  const timePrefix = it.allDay
+    ? `<span class="allday-badge">종일</span>`
+    : (it.time ? `<span style="color: var(--accent); margin-right: 4px;">${escapeHtml(it.time)}</span>` : '');
 
-  const hasTime = !!it.time;
+  const hasTime = !it.allDay && !!it.time;
   const isWeek = viewType === 'week';
   const chkHtml = isWeek ? '' : `<input type="checkbox" class="chk" ${it.done?'checked':''}>`;
   const tmStyle = isWeek ? 'style="font-size: 10.5px;"' : '';
@@ -2053,7 +2101,7 @@ function renderMonth(root){
         <div class="mnum ${mnumClass}">${d.getDate()}${holidayName(dateStr) ? `<span class="holiday-tag">${escapeHtml(holidayName(dateStr))}</span>` : ''}</div>`;
       const shown = items.slice(0,3);
       shown.forEach(it=>{
-        const timePrefix = it.time ? `${escapeHtml(it.time)} ` : '';
+        const timePrefix = it.allDay ? '종일 ' : (it.time ? `${escapeHtml(it.time)} ` : '');
         html += `<div class="mpill ${it.done?'done':''}" data-id="${it.id}" draggable="true">${timePrefix}${escapeHtml(it.title)}</div>`;
       });
       if(items.length>3){
@@ -2405,6 +2453,7 @@ document.getElementById('clockOkBtn').addEventListener('click', ()=>{
   closeClockPicker();
 });
 function combineTimeFields(){
+  if(document.getElementById('fAllDayCheck').checked) return ''; // 종일 일정은 시간 없음
   const isManual = document.getElementById('fTimeManualCheck').checked;
   if(isManual){
     const val = document.getElementById('fTimeManual').value.trim();
@@ -2429,10 +2478,24 @@ document.getElementById('fTimeManualCheck').addEventListener('change', (e) => {
   const isManual = e.target.checked;
   document.getElementById('timeSelectRow').style.display = isManual ? 'none' : 'grid';
   document.getElementById('timeInputRow').style.display = isManual ? 'flex' : 'none';
-  if(isManual) {
+  if(isManual && !document.getElementById('fAllDayCheck').checked) {
     document.getElementById('fTimeManual').focus();
   }
 });
+
+// '종일' 체크 시 시간 입력을 비활성화하고 입력값을 비운다
+function applyAllDayState(){
+  const on = document.getElementById('fAllDayCheck').checked;
+  document.querySelector('.time-container').classList.toggle('allday-on', on);
+  document.getElementById('fTimeManualCheck').disabled = on;
+  if(on){
+    setHourValue('');
+    document.getElementById('fMinute').value = '';
+    document.getElementById('fTimeManual').value = '';
+    updateTimeBtnLabel();
+  }
+}
+document.getElementById('fAllDayCheck').addEventListener('change', applyAllDayState);
 
 document.getElementById('fRepeat').addEventListener('change', (e) => {
   const val = e.target.value;
@@ -2454,6 +2517,8 @@ function openModal(id, presetDate){
   document.getElementById('timeSelectRow').style.display = 'grid';
   document.getElementById('timeInputRow').style.display = 'none';
   document.getElementById('fTimeManual').value = '';
+  document.getElementById('fAllDayCheck').checked = false;
+  applyAllDayState();
 
   // 기본 공통 리셋 (추가/수정 모달 무관하게 필드 세팅 가능하게 처리)
   document.getElementById('fRepeatToggle').checked = false;
@@ -2466,6 +2531,11 @@ function openModal(id, presetDate){
     document.getElementById('modalTitle').textContent = '일정 수정';
     document.getElementById('fTitle').value = it.title;
     document.getElementById('fDate').value = it.date;
+
+    if(it.allDay){
+      document.getElementById('fAllDayCheck').checked = true;
+      applyAllDayState();
+    }
 
     if(it.time){
       const [hh, mm] = it.time.split(':');
@@ -2588,8 +2658,9 @@ function autoSaveIfTitled(){
   const address = document.getElementById('fAddress').value.trim();
   const memo = document.getElementById('fMemo').value.trim();
   const done = document.getElementById('fDone').checked;
+  const allDay = document.getElementById('fAllDayCheck').checked;
 
-  schedules.push({id:uid(), title, date, time, company, contact, phone, address, memo, done});
+  schedules.push({id:uid(), title, date, time, company, contact, phone, address, memo, done, allDay, order: nextAllDayOrder(date, allDay)});
   save();
   refDate = calcRefDateAfterSave(date);
   render();
@@ -2678,6 +2749,7 @@ document.getElementById('saveBtn').addEventListener('click',()=>{
   const address = document.getElementById('fAddress').value.trim();
   const memo = document.getElementById('fMemo').value.trim();
   const done = document.getElementById('fDone').checked;
+  const allDay = document.getElementById('fAllDayCheck').checked;
   const id = document.getElementById('editId').value;
 
   const hasRepeat = document.getElementById('fRepeatToggle').checked;
@@ -2685,9 +2757,13 @@ document.getElementById('saveBtn').addEventListener('click',()=>{
 
   if(id){
     const it = schedules.find(s=>s.id===id);
+    const wasAllDay = !!it.allDay;
     it.title=title; it.date=date; it.time=time; it.company=company; it.contact=contact; it.phone=phone; it.address=address; it.memo=memo; it.done=done;
+    it.allDay = allDay;
+    // 종일 여부가 바뀌면 그룹이 달라지므로 새 그룹의 맨 아래로 배치
+    if(wasAllDay !== allDay) it.order = nextAllDayOrder(date, allDay);
   }else{
-    schedules.push({id:uid(), title, date, time, company, contact, phone, address, memo, done});
+    schedules.push({id:uid(), title, date, time, company, contact, phone, address, memo, done, allDay, order: nextAllDayOrder(date, allDay)});
   }
 
   // 추가 및 수정 시 설정된 반복 유형에 기반하여 미래 일정 자동 생성
@@ -2705,19 +2781,19 @@ document.getElementById('saveBtn').addEventListener('click',()=>{
       if(repeatType === 'daily'){
         loopDate.setDate(loopDate.getDate() + 1);
         while(loopDate <= endDate){
-          schedules.push({id:uid(), title, date: fmtDate(loopDate), time, company, contact, phone, address, memo, done});
+          schedules.push({id:uid(), title, date: fmtDate(loopDate), time, company, contact, phone, address, memo, done, allDay, order: nextAllDayOrder(fmtDate(loopDate), allDay)});
           loopDate.setDate(loopDate.getDate() + 1);
         }
       } else if(repeatType === 'weekly'){
         loopDate.setDate(loopDate.getDate() + 7);
         while(loopDate <= endDate){
-          schedules.push({id:uid(), title, date: fmtDate(loopDate), time, company, contact, phone, address, memo, done});
+          schedules.push({id:uid(), title, date: fmtDate(loopDate), time, company, contact, phone, address, memo, done, allDay, order: nextAllDayOrder(fmtDate(loopDate), allDay)});
           loopDate.setDate(loopDate.getDate() + 7);
         }
       } else if(repeatType === 'monthly'){
         loopDate.setMonth(loopDate.getMonth() + 1);
         while(loopDate <= endDate){
-          schedules.push({id:uid(), title, date: fmtDate(loopDate), time, company, contact, phone, address, memo, done});
+          schedules.push({id:uid(), title, date: fmtDate(loopDate), time, company, contact, phone, address, memo, done, allDay, order: nextAllDayOrder(fmtDate(loopDate), allDay)});
           loopDate.setMonth(loopDate.getMonth() + 1);
         }
       }
@@ -3086,11 +3162,14 @@ document.getElementById('excelExportBtn').addEventListener('click', ()=>{
   }
   const rows = schedules.slice().sort((a,b)=>{
     if(a.date!==b.date) return a.date.localeCompare(b.date);
+    const ag=scheduleGroup(a), bg=scheduleGroup(b);
+    if(ag!==bg) return ag-bg;
+    if(ag===1) return a.time.localeCompare(b.time);
     const ao=(typeof a.order==='number')?a.order:Infinity, bo=(typeof b.order==='number')?b.order:Infinity;
     return ao-bo;
   }).map(it=>({
     '날짜': it.date,
-    '시간': it.time || '',
+    '시간': it.allDay ? '종일' : (it.time || ''),
     '제목': it.title,
     '회사명': it.company || '',
     '담당자': it.contact || '',
@@ -3365,11 +3444,14 @@ document.getElementById('excelImportInput').addEventListener('change', (e)=>{
         const date = toDateStr(row['날짜']);
         if(!title || !date) return null;
         const doneRaw = row['완료여부'];
+        const timeRaw = String(row['시간']||'').trim();
+        const isAllDay = timeRaw === '종일';
         return {
           id: uid(),
           title,
           date,
-          time: toTimeStr(row['시간']),
+          allDay: isAllDay,
+          time: isAllDay ? '' : toTimeStr(row['시간']),
           company: String(row['회사명']||'').trim(),
           contact: String(row['담당자']||'').trim(),
           phone: String(row['연락처']||'').trim(),
