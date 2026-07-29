@@ -1213,6 +1213,11 @@ firebase.initializeApp(firebaseConfig);
 const fbAuth = firebase.auth();
 const fbDb = firebase.firestore();
 
+// 로그인 유지 정책: LOCAL (페이지·브라우저를 닫아도 로그인 유지, 명시적 로그아웃 전까지)
+fbAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch((e)=>{
+  console.error('로그인 유지(persistence) 설정 실패', e);
+});
+
 /* 로그인 가능한 관리자 계정 (이 계정으로만 접근 가능) */
 const ADMIN_EMAIL = 'hih100930@gmail.com';
 const FS_COLLECTION = 'schedule_admin_data';
@@ -1371,6 +1376,11 @@ function fsStartSync(){
     }
   }, (err)=>{
     console.error('Firestore 실시간 동기화 오류(설정)', err);
+    if(err && err.code === 'permission-denied'){
+      if(fsUnsub){ fsUnsub(); fsUnsub = null; }
+      fbAuth.signOut().catch(()=>{});
+      showLoginOverlay('로그인 세션이 만료되었거나 권한이 없습니다. 다시 로그인해 주세요.');
+    }
   });
 
   const scheduleUnsub = fsSchedulesRef().where('date', '>=', syncCutoffDateStr).onSnapshot((snap)=>{
@@ -1403,6 +1413,11 @@ function fsStartSync(){
     }
   }, (err)=>{
     console.error('Firestore 실시간 동기화 오류(일정)', err);
+    if(err && err.code === 'permission-denied'){
+      if(fsUnsub){ fsUnsub(); fsUnsub = null; }
+      fbAuth.signOut().catch(()=>{});
+      showLoginOverlay('로그인 세션이 만료되었거나 권한이 없습니다. 다시 로그인해 주세요.');
+    }
   });
 
   fsUnsub = function(){ metaUnsub(); scheduleUnsub(); };
