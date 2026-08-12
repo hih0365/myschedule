@@ -2452,6 +2452,20 @@ document.getElementById('clockOkBtn').addEventListener('click', ()=>{
   document.getElementById('fMinute').value = m===null ? '' : String(m).padStart(2,'0');
   updateTimeBtnLabel();
   closeClockPicker();
+
+  // 기존 일정을 수정 중이라면 '저장' 버튼을 누르지 않아도 시간 변경을 즉시 반영한다
+  const editingId = document.getElementById('editId').value;
+  if(editingId){
+    const it = schedules.find(s=>s.id===editingId);
+    if(it){
+      const newTime = combineTimeFields();
+      if(it.time !== newTime){
+        it.time = newTime;
+        save();
+        render();
+      }
+    }
+  }
 });
 function combineTimeFields(){
   if(document.getElementById('fAllDayCheck').checked) return ''; // 종일 일정은 시간 없음
