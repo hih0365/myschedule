@@ -2499,15 +2499,28 @@ document.getElementById('fTimeManualCheck').addEventListener('change', (e) => {
 });
 
 // '종일' 체크 시 시간 입력을 비활성화하고 입력값을 비운다
+// 단, 저장 전에 체크를 풀면 이전에 넣어둔 시간이 그대로 되살아나도록 값을 기억해 둔다
+let allDayStash = null;
 function applyAllDayState(){
   const on = document.getElementById('fAllDayCheck').checked;
   document.querySelector('.time-container').classList.toggle('allday-on', on);
   document.getElementById('fTimeManualCheck').disabled = on;
   if(on){
+    allDayStash = {
+      hour: document.getElementById('fHour').value,
+      minute: document.getElementById('fMinute').value,
+      manual: document.getElementById('fTimeManual').value
+    };
     setHourValue('');
     document.getElementById('fMinute').value = '';
     document.getElementById('fTimeManual').value = '';
     updateTimeBtnLabel();
+  } else if(allDayStash){
+    setHourValue(allDayStash.hour);
+    document.getElementById('fMinute').value = allDayStash.minute;
+    document.getElementById('fTimeManual').value = allDayStash.manual;
+    updateTimeBtnLabel();
+    allDayStash = null;
   }
 }
 document.getElementById('fAllDayCheck').addEventListener('change', applyAllDayState);
@@ -2533,6 +2546,7 @@ function openModal(id, presetDate){
   document.getElementById('timeInputRow').style.display = 'none';
   document.getElementById('fTimeManual').value = '';
   document.getElementById('fAllDayCheck').checked = false;
+  allDayStash = null;
   applyAllDayState();
 
   // 기본 공통 리셋 (추가/수정 모달 무관하게 필드 세팅 가능하게 처리)
