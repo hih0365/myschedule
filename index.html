@@ -1524,6 +1524,20 @@ async function fsSyncSchedules(){
   }
 }
 
+/* 창을 닫거나 새로고침할 때 종료 확인창을 띄운다.
+   문구는 브라우저가 정하므로 지정할 수 없고, 확인창이 뜨는 동안 대기 중이던 저장을 먼저 밀어 넣는다. */
+window.addEventListener('beforeunload', (e)=>{
+  if(fsSaveTimer){
+    clearTimeout(fsSaveTimer);
+    fsSaveTimer = null;
+    fsSaveNow();
+    fsSyncSchedules();
+  }
+  e.preventDefault();
+  e.returnValue = '';
+  return '';
+});
+
 function fsScheduleSave(){
   if(fsApplyingRemote) return;
   if(fsSaveTimer) clearTimeout(fsSaveTimer);
