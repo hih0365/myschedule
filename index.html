@@ -330,7 +330,6 @@
   }
   .daycol.today .dayhead{background:var(--today-bg);}
   .dayhead .dname{
-    display:inline-block;
     font-size:11px;
     font-weight:700;
     letter-spacing:0.05em;
@@ -1877,16 +1876,8 @@ function renderDay(root){
   root.innerHTML = html;
   renderLoadBanner(root, refDate, refDate);
   attachItemHandlers(root);
-  attachDateNumberHandlers(root, '.dnum', '.daycol');
+  attachDateNumberHandlers(root, '.dnum, .dname', '.daycol');
   attachDayHeadAddHandlers(root);
-  root.querySelectorAll('.daybody').forEach(el=>{
-    el.addEventListener('click',(e)=>{
-      if(e.target===el || e.target.classList.contains('empty-day')){
-        const dateStr = el.closest('.daycol').dataset.date;
-        openModal(null, dateStr);
-      }
-    });
-  });
 }
 
 function render3Day(root){
@@ -1928,16 +1919,8 @@ function render3Day(root){
   renderLoadBanner(root, start, addDays(start,2));
 
   attachItemHandlers(root);
-  attachDateNumberHandlers(root, '.dnum', '.daycol');
+  attachDateNumberHandlers(root, '.dnum, .dname', '.daycol');
   attachDayHeadAddHandlers(root);
-  root.querySelectorAll('.daybody').forEach(el=>{
-    el.addEventListener('click',(e)=>{
-      if(e.target===el || e.target.classList.contains('empty-day')){
-        const dateStr = el.closest('.daycol').dataset.date;
-        openModal(null, dateStr);
-      }
-    });
-  });
 }
 
 function renderWeek(root){
@@ -1975,16 +1958,8 @@ function renderWeek(root){
   root.innerHTML = html;
   renderLoadBanner(root, start, end);
   attachItemHandlers(root);
-  attachDateNumberHandlers(root, '.dnum', '.daycol');
+  attachDateNumberHandlers(root, '.dnum, .dname', '.daycol');
   attachDayHeadAddHandlers(root);
-  root.querySelectorAll('.daybody').forEach(el=>{
-    el.addEventListener('click',(e)=>{
-      if(e.target===el || e.target.classList.contains('empty-day')){
-        const dateStr = el.closest('.daycol').dataset.date;
-        openModal(null, dateStr);
-      }
-    });
-  });
 }
 
 function renderItem(it, viewType = 'day'){
@@ -2222,12 +2197,12 @@ function renderYear(root){
   });
 }
 
-// 날짜 머리글의 빈 공간(요일명 오른쪽 등)을 클릭하면 그 날짜로 일정 추가 창을 연다
-// 날짜 숫자(.dnum)는 기존대로 공휴일 설정 창을 열므로 제외한다
+// 날짜 머리글의 빈 공간을 클릭하면 그 날짜로 일정 추가 창을 연다
+// 날짜 숫자(.dnum)와 요일명(.dname)은 공휴일 설정 창을 열므로 제외한다
 function attachDayHeadAddHandlers(root){
   root.querySelectorAll('.dayhead').forEach(el=>{
     el.addEventListener('click',(e)=>{
-      if(e.target.closest('.dnum')) return;
+      if(e.target.closest('.dnum') || e.target.closest('.dname')) return;
       const dateStr = el.closest('.daycol')?.dataset.date;
       if(dateStr) openModal(null, dateStr);
     });
