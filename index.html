@@ -326,14 +326,17 @@
     padding:10px 10px 8px;
     border-bottom:1px solid var(--line);
     background:var(--bg);
+    cursor:pointer;
   }
   .daycol.today .dayhead{background:var(--today-bg);}
   .dayhead .dname{
+    display:inline-block;
     font-size:11px;
     font-weight:700;
     letter-spacing:0.05em;
     color:var(--date-black);
     text-transform:uppercase;
+    cursor:pointer;
   }
   .dayhead .dnum{
     font-size:19px;
@@ -1875,6 +1878,7 @@ function renderDay(root){
   renderLoadBanner(root, refDate, refDate);
   attachItemHandlers(root);
   attachDateNumberHandlers(root, '.dnum', '.daycol');
+  attachDayHeadAddHandlers(root);
   root.querySelectorAll('.daybody').forEach(el=>{
     el.addEventListener('click',(e)=>{
       if(e.target===el || e.target.classList.contains('empty-day')){
@@ -1925,6 +1929,7 @@ function render3Day(root){
 
   attachItemHandlers(root);
   attachDateNumberHandlers(root, '.dnum', '.daycol');
+  attachDayHeadAddHandlers(root);
   root.querySelectorAll('.daybody').forEach(el=>{
     el.addEventListener('click',(e)=>{
       if(e.target===el || e.target.classList.contains('empty-day')){
@@ -1971,6 +1976,7 @@ function renderWeek(root){
   renderLoadBanner(root, start, end);
   attachItemHandlers(root);
   attachDateNumberHandlers(root, '.dnum', '.daycol');
+  attachDayHeadAddHandlers(root);
   root.querySelectorAll('.daybody').forEach(el=>{
     el.addEventListener('click',(e)=>{
       if(e.target===el || e.target.classList.contains('empty-day')){
@@ -2212,6 +2218,18 @@ function renderYear(root){
       refDate = new Date(y, mIdx, 1);
       currentView = 'month';
       render();
+    });
+  });
+}
+
+// 날짜 머리글의 빈 공간(요일명 오른쪽 등)을 클릭하면 그 날짜로 일정 추가 창을 연다
+// 날짜 숫자(.dnum)는 기존대로 공휴일 설정 창을 열므로 제외한다
+function attachDayHeadAddHandlers(root){
+  root.querySelectorAll('.dayhead').forEach(el=>{
+    el.addEventListener('click',(e)=>{
+      if(e.target.closest('.dnum')) return;
+      const dateStr = el.closest('.daycol')?.dataset.date;
+      if(dateStr) openModal(null, dateStr);
     });
   });
 }
