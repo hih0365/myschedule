@@ -1417,6 +1417,7 @@ function fsStartSync(){
     localStorage.setItem(STORAGE_KEY, JSON.stringify(schedules));
     localStorage.setItem(HOLIDAY_KEY, JSON.stringify(holidays));
     fsApplyingRemote = false;
+    purgeOldTrash(); // 15일 지난 휴지통 항목 정리 (동기화된 최신 데이터 기준으로 다시 한 번 확인)
     render();
 
     if(!pendingMetaExists){
@@ -2936,6 +2937,18 @@ function moveToTrash(id){
 function trashedSchedules(){
   return schedules.filter(s=>s.trashed).sort((a,b)=>(b.deletedAt||'').localeCompare(a.deletedAt||''));
 }
+// 휴지통에 15일 넘게 보관된 일정은 자동으로 완전 삭제한다
+const TRASH_RETENTION_DAYS = 15;
+function purgeOldTrash(){
+  const cutoff = Date.now() - TRASH_RETENTION_DAYS*24*60*60*1000;
+  const before = schedules.length;
+  schedules = schedules.filter(s=>{
+    if(!s.trashed) return true;
+    if(!s.deletedAt) return true; // 삭제 시각 정보가 없는 이전 데이터는 안전하게 보존
+    return new Date(s.deletedAt).getTime() >= cutoff;
+  });
+  if(schedules.length !== before) save();
+}
 function restoreFromTrash(id){
   const it = schedules.find(s=>s.id===id);
   if(!it) return;
@@ -2970,11 +2983,10 @@ function renderTrashList(){
   emptyBtn.disabled = false;
   container.innerHTML = list.map(it=>{
     const timeLabel = it.allDay ? '종일' : (it.time ? it.time : '시간 미지정');
-    const deletedLabel = it.deletedAt ? new Date(it.deletedAt).toLocaleString('ko-KR', {year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '';
     return `<div class="trash-item" data-id="${it.id}">
       <div class="trash-item-txt">
         <div class="trash-item-ttl">${escapeHtml(it.title || '(제목 없음)')}</div>
-        <div class="trash-item-meta">${escapeHtml(it.date)} · ${escapeHtml(timeLabel)}${deletedLabel ? ` · 삭제일 ${escapeHtml(deletedLabel)}` : ''}</div>
+        <div class="trash-item-meta">${escapeHtml(it.date)} · ${escapeHtml(timeLabel)}</div>
       </div>
       <div class="trash-item-actions">
         <button type="button" class="btn btn-ghost trash-restore-btn" data-id="${it.id}">복원</button>
@@ -2994,6 +3006,7 @@ function renderTrashList(){
   });
 }
 function openTrashModal(){
+  purgeOldTrash();
   renderTrashList();
   trashOverlay.classList.add('show');
 }
@@ -3692,7 +3705,14 @@ document.getElementById('excelImportInput').addEventListener('change', (e)=>{
 
 /* ---------- init ---------- */
 load();
+purgeOldTrash();
 render();
+
+// 앱을 오래 켜둔 세션에서도 15일 지난 휴지통 항목이 계속 정리되도록 주기적으로 확인 (1시간 간격)
+setInterval(()=>{
+  purgeOldTrash();
+  if(trashOverlay.classList.contains('show')) renderTrashList();
+}, 60*60*1000);
 
 /* 휴대폰 해상도(가로 480px 이하)에서는 일간/3일간 뷰만 노출되므로, 그 외 뷰면 자동으로 일간 뷰로 전환 */
 const MOBILE_VIEW_BREAKPOINT = 480;
