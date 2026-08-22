@@ -908,6 +908,49 @@
   .btn-danger{background:transparent;color:var(--danger);}
   .btn-danger:hover{text-decoration:underline;}
 
+  /* 휴지통 */
+  .trash-list{
+    max-height:360px;
+    overflow-y:auto;
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+    margin-bottom:4px;
+  }
+  .trash-item{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    padding:8px 10px;
+    border-radius:8px;
+    background:var(--bg);
+    border-left:3px solid var(--line-strong);
+  }
+  .trash-item-txt{flex:1; min-width:0;}
+  .trash-item-ttl{
+    font-size:13px;
+    font-weight:700;
+    color:var(--ink);
+    word-break:break-word;
+  }
+  .trash-item-meta{
+    font-size:11px;
+    color:var(--ink-soft);
+    margin-top:2px;
+  }
+  .trash-item-actions{
+    display:flex;
+    gap:2px;
+    flex-shrink:0;
+  }
+  .trash-item-actions .btn{padding:6px 10px; font-size:12px;}
+  .trash-empty{
+    font-size:13px;
+    color:#9aa196;
+    text-align:center;
+    padding:30px 4px;
+  }
+
   @media (max-width:900px){
     .weekgrid{grid-template-columns:repeat(7,minmax(120px,1fr));overflow-x:auto;}
     .yeargrid{grid-template-columns:repeat(2,1fr);}
@@ -939,6 +982,7 @@
     #pwBtn{order:5;}
     #excelExportBtn{display:none;}
     #diaryFillBtn{display:none;}
+    #trashBtn{display:none;}
     #excelImportBtn{display:none;}
     #printBtn{display:none;}
     .searchbox{order:6;}
@@ -1016,6 +1060,7 @@
       </div>
       <button class="todaybtn" id="todayBtn">오늘</button>
       <button class="iconbtn" id="diaryFillBtn" title="다이어리 양식에 채우기">📔</button>
+      <button class="iconbtn" id="trashBtn" title="휴지통">🗑️</button>
       <button class="iconbtn" id="printBtn" title="현재 화면 인쇄">🖨️</button>
       <button class="iconbtn" id="pwBtn" title="완료 일정 삭제 비밀번호 등록">🔒</button>
       <button class="iconbtn" id="excelExportBtn" title="Excel로 내보내기">📤</button>
@@ -1173,6 +1218,18 @@
       <div style="flex:1;"></div>
       <button class="btn btn-ghost" id="holidayCancelBtn">취소</button>
       <button class="btn btn-primary" id="holidaySaveBtn">저장</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="trashOverlay">
+  <div class="modal" style="max-width:420px;">
+    <h2>휴지통</h2>
+    <div id="trashList" class="trash-list"></div>
+    <div class="modal-actions">
+      <button class="btn btn-danger" id="trashEmptyBtn">전체 삭제</button>
+      <div style="flex:1;"></div>
+      <button class="btn btn-ghost" id="trashCloseBtn">닫기</button>
     </div>
   </div>
 </div>
@@ -1619,12 +1676,13 @@ function scheduleGroup(s){
 function nextAllDayOrder(dateStr, isAllDay){
   const g = isAllDay ? 0 : 2;
   const orders = schedules
-    .filter(s=>s.date===dateStr && scheduleGroup(s)===g && typeof s.order==='number')
+    .filter(s=>s.date===dateStr && !s.trashed && scheduleGroup(s)===g && typeof s.order==='number')
     .map(s=>s.order);
   return orders.length ? Math.max.apply(null, orders) + 1 : 0;
 }
+// 휴지통(삭제됨)으로 이동한 일정은 모든 화면·검색·내보내기에서 제외한다
 function schedulesForDate(dateStr){
-  return schedules.filter(s=>s.date===dateStr).sort((a,b)=>{
+  return schedules.filter(s=>s.date===dateStr && !s.trashed).sort((a,b)=>{
     if(!!a.done !== !!b.done) return a.done ? 1 : -1;
     const ag = scheduleGroup(a), bg = scheduleGroup(b);
     if(ag !== bg) return ag - bg;
@@ -1739,7 +1797,7 @@ function moveScheduleToDate(sourceId, newDate, targetId, insertAfter){
   if(!it || !newDate) return;
   if(it.date===newDate && !targetId) return; 
   it.date = newDate;
-  const list = schedules.filter(s=>s.date===newDate && s.id!==sourceId).sort((a,b)=>{
+  const list = schedules.filter(s=>s.date===newDate && s.id!==sourceId && !s.trashed).sort((a,b)=>{
     const ao=(typeof a.order==='number')?a.order:Infinity, bo=(typeof b.order==='number')?b.order:Infinity;
     return ao-bo;
   });
@@ -2176,7 +2234,7 @@ function renderYear(root){
         const otherMonth = d.getMonth()!==m;
         const dateStr = fmtDate(d);
         const isToday = isSameDay(d,today);
-        const hasItems = schedules.some(s=>s.date===dateStr);
+        const hasItems = schedules.some(s=>s.date===dateStr && !s.trashed);
         
         let cellClass = '';
         if(!otherMonth) {
@@ -2859,11 +2917,102 @@ document.getElementById('deleteBtn').addEventListener('click', async ()=>{
     const ok = await requestDeletePassword();
     if(!ok) return;
   }
-  if(confirm('이 일정을 삭제하시겠습니까?')){
-    schedules = schedules.filter(s=>s.id!==id);
-    save();
+  if(confirm('이 일정을 휴지통으로 이동하시겠습니까?')){
+    moveToTrash(id);
     closeModal();
     render();
+  }
+});
+
+/* ---------- 휴지통 ---------- */
+// 일정을 실제로 지우지 않고 trashed 플래그만 세워 휴지통으로 보낸다 (다른 화면/검색/내보내기에서는 자동 제외됨)
+function moveToTrash(id){
+  const it = schedules.find(s=>s.id===id);
+  if(!it) return;
+  it.trashed = true;
+  it.deletedAt = new Date().toISOString();
+  save();
+}
+function trashedSchedules(){
+  return schedules.filter(s=>s.trashed).sort((a,b)=>(b.deletedAt||'').localeCompare(a.deletedAt||''));
+}
+function restoreFromTrash(id){
+  const it = schedules.find(s=>s.id===id);
+  if(!it) return;
+  delete it.trashed;
+  delete it.deletedAt;
+  save();
+  renderTrashList();
+  render();
+}
+function permanentlyDeleteFromTrash(id){
+  schedules = schedules.filter(s=>s.id!==id);
+  save();
+  renderTrashList();
+  render();
+}
+function emptyTrash(){
+  schedules = schedules.filter(s=>!s.trashed);
+  save();
+  renderTrashList();
+  render();
+}
+const trashOverlay = document.getElementById('trashOverlay');
+function renderTrashList(){
+  const list = trashedSchedules();
+  const container = document.getElementById('trashList');
+  const emptyBtn = document.getElementById('trashEmptyBtn');
+  if(list.length===0){
+    container.innerHTML = '<div class="trash-empty">휴지통이 비어 있습니다.</div>';
+    emptyBtn.disabled = true;
+    return;
+  }
+  emptyBtn.disabled = false;
+  container.innerHTML = list.map(it=>{
+    const timeLabel = it.allDay ? '종일' : (it.time ? it.time : '시간 미지정');
+    const deletedLabel = it.deletedAt ? new Date(it.deletedAt).toLocaleString('ko-KR', {year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '';
+    return `<div class="trash-item" data-id="${it.id}">
+      <div class="trash-item-txt">
+        <div class="trash-item-ttl">${escapeHtml(it.title || '(제목 없음)')}</div>
+        <div class="trash-item-meta">${escapeHtml(it.date)} · ${escapeHtml(timeLabel)}${deletedLabel ? ` · 삭제일 ${escapeHtml(deletedLabel)}` : ''}</div>
+      </div>
+      <div class="trash-item-actions">
+        <button type="button" class="btn btn-ghost trash-restore-btn" data-id="${it.id}">복원</button>
+        <button type="button" class="btn btn-danger trash-delete-btn" data-id="${it.id}">영구삭제</button>
+      </div>
+    </div>`;
+  }).join('');
+  container.querySelectorAll('.trash-restore-btn').forEach(btn=>{
+    btn.addEventListener('click', ()=>restoreFromTrash(btn.dataset.id));
+  });
+  container.querySelectorAll('.trash-delete-btn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      if(confirm('이 일정을 완전히 삭제하시겠습니까? 삭제 후에는 복구할 수 없습니다.')){
+        permanentlyDeleteFromTrash(btn.dataset.id);
+      }
+    });
+  });
+}
+function openTrashModal(){
+  renderTrashList();
+  trashOverlay.classList.add('show');
+}
+function closeTrashModal(){
+  trashOverlay.classList.remove('show');
+}
+document.getElementById('trashBtn').addEventListener('click', openTrashModal);
+document.getElementById('trashCloseBtn').addEventListener('click', closeTrashModal);
+trashOverlay.addEventListener('mousedown',(e)=>{
+  if(e.target===trashOverlay) trashOverlay._downOnOverlay = true;
+  else trashOverlay._downOnOverlay = false;
+});
+trashOverlay.addEventListener('mouseup',(e)=>{
+  if(e.target===trashOverlay && trashOverlay._downOnOverlay) closeTrashModal();
+});
+document.getElementById('trashEmptyBtn').addEventListener('click', ()=>{
+  if(trashedSchedules().length===0) return;
+  if(confirm('휴지통에 있는 모든 일정을 완전히 삭제하시겠습니까? 삭제 후에는 복구할 수 없습니다.')){
+    emptyTrash();
   }
 });
 
@@ -3200,11 +3349,12 @@ document.getElementById('excelExportBtn').addEventListener('click', ()=>{
     alert('Excel 라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인해주세요.');
     return;
   }
-  if(schedules.length===0){
+  const exportable = schedules.filter(s=>!s.trashed);
+  if(exportable.length===0){
     alert('내보낼 일정이 없습니다.');
     return;
   }
-  const rows = schedules.slice().sort((a,b)=>{
+  const rows = exportable.slice().sort((a,b)=>{
     if(a.date!==b.date) return a.date.localeCompare(b.date);
     const ag=scheduleGroup(a), bg=scheduleGroup(b);
     if(ag!==bg) return ag-bg;
@@ -3515,12 +3665,12 @@ document.getElementById('excelImportInput').addEventListener('change', (e)=>{
 확인: 기존 일정에 추가
 취소: 기존 일정을 모두 지우고 교체`);
       if(doReplace){
-        schedules = [];
+        schedules = schedules.filter(s=>s.trashed); // 휴지통에 있는 일정은 교체 시에도 보존
       }
       const maxOrderByDate = {};
       imported.forEach(it=>{
         if(!(it.date in maxOrderByDate)){
-          const existingOrders = schedules.filter(s=>s.date===it.date).map(s=>(typeof s.order==='number'?s.order:-1));
+          const existingOrders = schedules.filter(s=>s.date===it.date && !s.trashed).map(s=>(typeof s.order==='number'?s.order:-1));
           maxOrderByDate[it.date] = existingOrders.length ? Math.max(...existingOrders) : -1;
         }
         maxOrderByDate[it.date]++;
