@@ -2112,13 +2112,20 @@ function renderMonth(root){
   root.innerHTML = html;
   renderLoadBanner(root, firstOfMonth, new Date(y, m+1, 0));
 
+  // 날짜 숫자(.mnum)는 attachDateNumberHandlers가 별도 처리(날짜설정 창)한다.
+  // 그 외 셀의 나머지 공간은 일정추가 활성화에 할당하고,
+  // 기존 일정(.mpill)이나 '더보기'를 클릭한 경우에만 해당 날짜의 일간 화면으로 이동한다.
   root.querySelectorAll('.mcell').forEach(el=>{
-    el.addEventListener('click',()=>{
+    el.addEventListener('click',(e)=>{
       if(el.dataset.suppressClick){ delete el.dataset.suppressClick; return; }
       const dateStr = el.dataset.date;
-      refDate = new Date(dateStr+'T00:00:00');
-      currentView = 'day';
-      render();
+      if(e.target.closest('.mpill') || e.target.closest('.more')){
+        refDate = new Date(dateStr+'T00:00:00');
+        currentView = 'day';
+        render();
+        return;
+      }
+      openModal(null, dateStr);
     });
   });
   attachDateNumberHandlers(root, '.mnum', '.mcell');
