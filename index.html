@@ -1001,7 +1001,7 @@
     padding:34px 0 30px;
   }
 
-  /* 일간·3일간: 상단 날짜 클릭 → 날짜 선택 달력 */
+  /* 일간·3일간·주간: 상단 날짜 클릭 → 날짜 선택 달력 */
   .period-label.clickable{
     cursor:pointer;
     border-radius:6px;
@@ -1889,8 +1889,8 @@ function render(){
   else if(currentView==='week') renderWeek(root);
   else if(currentView==='month') renderMonth(root);
   else renderYear(root);
-  // 일간·3일간에서는 상단 날짜 표시를 클릭하면 날짜 선택 달력이 열린다
-  const pickable = (currentView==='day' || currentView==='3day');
+  // 일간·3일간·주간에서는 상단 날짜 표시를 클릭하면 날짜 선택 달력이 열린다
+  const pickable = (currentView==='day' || currentView==='3day' || currentView==='week');
   const pl = document.getElementById('periodLabel');
   pl.classList.toggle('clickable', pickable);
   pl.title = pickable ? '날짜 선택' : '';
@@ -3044,14 +3044,7 @@ function openDayListModal(dateStr){
     body.querySelectorAll('.dl-row').forEach(row=>{
       row.addEventListener('click', ()=>{
         closeDayListModal();
-        goToDayView(dateStr); // 상세 일정 클릭 → 해당 날짜의 일간 화면으로 이동
-        // 일간 화면에서 클릭한 일정을 잠깐 강조해 위치를 알려준다
-        const target = document.querySelector(`#viewRoot .item[data-id="${row.dataset.id}"]`);
-        if(target){
-          target.scrollIntoView({behavior:'smooth', block:'center'});
-          target.classList.add('search-current');
-          setTimeout(()=>target.classList.remove('search-current'), 1600);
-        }
+        openModal(row.dataset.id); // 개별 일정 클릭 → '일정 수정' 창으로 바로 열기
       });
     });
   }
@@ -3076,7 +3069,7 @@ dayListOverlay.addEventListener('mouseup',(e)=>{
   if(e.target===dayListOverlay && dayListOverlay._downOnOverlay) closeDayListModal();
 });
 
-/* ---------- 일간·3일간: 날짜 선택 달력 ---------- */
+/* ---------- 일간·3일간·주간: 날짜 선택 달력 ---------- */
 const datePickerOverlay = document.getElementById('datePickerOverlay');
 let dpMonth = new Date(); // 달력에 보여주고 있는 달 (1일 기준)
 
@@ -3085,9 +3078,14 @@ function renderDatePicker(){
   document.getElementById('dpTitle').textContent = `${y}년 ${m+1}월`;
   const gridStart = startOfWeek(new Date(y, m, 1));
   const todayStr = fmtDate(new Date());
-  const selStart = new Date(refDate); selStart.setHours(0,0,0,0);
-  const selStartStr = fmtDate(selStart);
-  const selEndStr = currentView==='3day' ? fmtDate(addDays(selStart, 2)) : selStartStr;
+  // 현재 화면에 보이는 기간: 일간=1일, 3일간=refDate부터 3일, 주간=그 주 일~토
+  const selDate = new Date(refDate); selDate.setHours(0,0,0,0);
+  const selDateStr = fmtDate(selDate);
+  let rangeStart = selDate, rangeLen = 1;
+  if(currentView==='3day') rangeLen = 3;
+  else if(currentView==='week'){ rangeStart = startOfWeek(selDate); rangeLen = 7; }
+  const rangeStartStr = fmtDate(rangeStart);
+  const rangeEndStr = fmtDate(addDays(rangeStart, rangeLen-1));
 
   let html = '';
   DAY_NAMES.forEach((n,i)=>{
@@ -3102,8 +3100,8 @@ function renderDatePicker(){
     else if(d.getDay()===0) cls.push('sun');
     else if(d.getDay()===6) cls.push('sat');
     if(ds===todayStr) cls.push('today');
-    if(ds===selStartStr) cls.push('selected');
-    else if(ds>selStartStr && ds<=selEndStr) cls.push('in-range');
+    if(ds===selDateStr) cls.push('selected');
+    else if(ds>=rangeStartStr && ds<=rangeEndStr) cls.push('in-range');
     const hasItems = schedules.some(s=>s.date===ds);
     html += `<button type="button" class="${cls.join(' ')}" data-date="${ds}" ${holidayName(ds)?`title="${escapeHtml(holidayName(ds))}"`:''}>${d.getDate()}${hasItems?'<span class="dp-dot"></span>':''}</button>`;
   }
@@ -3126,7 +3124,7 @@ function closeDatePicker(){
   datePickerOverlay.classList.remove('show');
 }
 document.getElementById('periodLabel').addEventListener('click', ()=>{
-  if(currentView==='day' || currentView==='3day') openDatePicker();
+  if(currentView==='day' || currentView==='3day' || currentView==='week') openDatePicker();
 });
 document.getElementById('dpPrevBtn').addEventListener('click', ()=>{
   dpMonth = new Date(dpMonth.getFullYear(), dpMonth.getMonth()-1, 1);
