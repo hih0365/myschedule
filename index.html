@@ -557,6 +557,12 @@
     border-left-color:var(--done);
     background:#f0f1ef;
   }
+  .mcell .mpill .mtime{
+    color:var(--accent);
+  }
+  .mcell .mpill.done .mtime{
+    color:var(--done);
+  }
   .mcell .more{
     font-size: 12px;
     color:var(--ink-soft);
@@ -1784,7 +1790,22 @@ function scheduleMatchesQuery(it, q){
 function highlightQueryIn(el, q){
   if(!el || !q) return;
   const regex = new RegExp(`(${escapeRegExp(q)})`, 'ig');
-  el.innerHTML = el.innerHTML.replace(regex, '<mark class="search-mark">$1</mark>');
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  const nodes = [];
+  let n;
+  while((n = walker.nextNode())) nodes.push(n);
+  nodes.forEach(node=>{
+    const text = node.nodeValue;
+    if(!text) return;
+    regex.lastIndex = 0;
+    if(!regex.test(text)) return;
+    regex.lastIndex = 0;
+    const frag = document.createElement('span');
+    frag.innerHTML = text
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      .replace(regex, '<mark class="search-mark">$1</mark>');
+    node.replaceWith(...frag.childNodes);
+  });
 }
 function applySearchToRoot(root){
   const q = searchQuery.trim().toLowerCase();
@@ -2101,7 +2122,8 @@ function renderMonth(root){
         <div class="mnum ${mnumClass}">${d.getDate()}${holidayName(dateStr) ? `<span class="holiday-tag">${escapeHtml(holidayName(dateStr))}</span>` : ''}</div>`;
       const shown = items.slice(0,3);
       shown.forEach(it=>{
-        const timePrefix = it.allDay ? '종일 ' : (it.time ? `${escapeHtml(it.time)} ` : '');
+        const timeTxt = it.allDay ? '종일' : (it.time ? escapeHtml(it.time) : '');
+        const timePrefix = timeTxt ? `<span class="mtime">${timeTxt}</span> ` : '';
         html += `<div class="mpill ${it.done?'done':''}" data-id="${it.id}" draggable="true">${timePrefix}${escapeHtml(it.title)}</div>`;
       });
       if(items.length>3){
