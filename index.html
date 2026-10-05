@@ -961,6 +961,12 @@
     .modal{padding:16px;}
   }
 
+  /* 메일주소 왼쪽 새로고침 버튼 */
+  .refresh-btn{width:30px;height:30px;margin-right:2px;color:var(--ink-soft);}
+  .refresh-btn:hover{color:var(--accent);}
+  .refresh-btn.spinning svg{animation:refresh-spin 0.8s linear infinite;}
+  @keyframes refresh-spin{to{transform:rotate(360deg);}}
+
   /* 월간: 날짜별 일정 목록 팝업 */
   .daylist-modal{max-width:420px; padding:20px 20px 16px;}
   .daylist-head{display:flex; align-items:baseline; gap:8px; margin-bottom:12px;}
@@ -1078,6 +1084,9 @@
     </div>
     <div class="controls">
       <div class="user-badge" id="userBadge" style="display:none;">
+        <button class="iconbtn refresh-btn" id="refreshBtn" title="새로고침" aria-label="새로고침">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.34 5.66"/><path d="M20 4v7h-7"/></svg>
+        </button>
         <span class="dot"></span><span id="userBadgeEmail"></span>
         <button class="todaybtn" id="logoutBtn" title="로그아웃">로그아웃</button>
       </div>
@@ -1652,7 +1661,9 @@ async function fsSyncSchedules(){
 
 /* 창을 닫거나 새로고침할 때 종료 확인창을 띄운다.
    문구는 브라우저가 정하므로 지정할 수 없고, 확인창이 뜨는 동안 대기 중이던 저장을 먼저 밀어 넣는다. */
+let skipUnloadConfirm = false; // 새로고침 버튼으로 다시 불러올 때는 종료 확인창을 띄우지 않음
 window.addEventListener('beforeunload', (e)=>{
+  if(skipUnloadConfirm) return;
   if(fsSaveTimer){
     clearTimeout(fsSaveTimer);
     fsSaveTimer = null;
@@ -1672,6 +1683,23 @@ function fsScheduleSave(){
     fsSyncSchedules();
   }, 500);
 }
+
+/* 새로고침 버튼: 대기 중인 저장을 먼저 끝까지 마친 뒤 페이지를 다시 불러온다
+   (저장이 끝난 뒤 새로고침하므로 종료 확인창 없이 바로 진행) */
+document.getElementById('refreshBtn').addEventListener('click', async ()=>{
+  const btn = document.getElementById('refreshBtn');
+  if(btn.disabled) return;
+  btn.disabled = true;
+  btn.classList.add('spinning');
+  try{
+    if(fsSaveTimer){ clearTimeout(fsSaveTimer); fsSaveTimer = null; }
+    await Promise.all([fsSaveNow(), fsSyncSchedules()]);
+  }catch(e){
+    console.error('새로고침 전 저장 실패', e);
+  }
+  skipUnloadConfirm = true;
+  location.reload();
+});
 </script>
 <script>
 const STORAGE_KEY = 'schedule_manager_data_v1';
