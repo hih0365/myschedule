@@ -961,6 +961,86 @@
     .modal{padding:16px;}
   }
 
+  /* 월간: 날짜별 일정 목록 팝업 */
+  .daylist-modal{max-width:420px; padding:20px 20px 16px;}
+  .daylist-head{display:flex; align-items:baseline; gap:8px; margin-bottom:12px;}
+  .daylist-head h2{margin:0; font-size:17px;}
+  .daylist-head .dl-dow{font-size:13px; font-weight:700; color:var(--ink-soft);}
+  .daylist-head .dl-dow.sun, .daylist-head .dl-dow.holiday{color:var(--danger);}
+  .daylist-head .dl-dow.sat{color:#3d68c6;}
+  .daylist-head .dl-hname{font-size:12px; font-weight:700; color:var(--danger);}
+  .daylist-head .dl-count{margin-left:auto; font-size:12px; color:var(--ink-soft); font-weight:600;}
+  .daylist-body{
+    display:flex; flex-direction:column; gap:6px;
+    max-height:min(60vh, 460px); overflow-y:auto;
+    margin:0 -4px; padding:2px 4px;
+  }
+  .dl-row{
+    display:grid;
+    grid-template-columns:52px 1fr;
+    align-items:start;
+    gap:10px;
+    padding:9px 10px;
+    border-radius:8px;
+    background:var(--bg);
+    border-left:3px solid var(--accent);
+    cursor:pointer;
+    transition:background 0.12s;
+  }
+  .dl-row:hover{background:var(--accent-soft);}
+  .dl-row .dl-time{font-size:13px; font-weight:700; color:var(--accent); padding-top:1px; white-space:nowrap;}
+  .dl-row .dl-time .allday-badge{margin-right:0;}
+  .dl-row .dl-time.none{color:#b3b7ae; font-weight:500;}
+  .dl-row .dl-title{font-size:14px; font-weight:700; line-height:1.35; word-break:break-word;}
+  .dl-row .dl-company{font-size:12.5px; color:var(--ink-soft); margin-top:2px; word-break:break-word;}
+  .dl-row.done{border-left-color:var(--done); opacity:0.65;}
+  .dl-row.done .dl-title{text-decoration:line-through; color:var(--done); font-weight:500;}
+  .dl-row.done .dl-time, .dl-row.done .dl-company{color:var(--done);}
+  .dl-empty{
+    text-align:center; color:#9aa196; font-size:14px;
+    padding:34px 0 30px;
+  }
+
+  /* 일간·3일간: 상단 날짜 클릭 → 날짜 선택 달력 */
+  .period-label.clickable{
+    cursor:pointer;
+    border-radius:6px;
+    padding:4px 6px;
+    transition:background 0.12s;
+  }
+  .period-label.clickable:hover{background:var(--accent-soft); color:var(--accent);}
+  .dp-modal{max-width:310px; padding:18px 18px 14px;}
+  .dp-head{display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;}
+  .dp-head .dp-title{font-size:16px; font-weight:800;}
+  .dp-grid{display:grid; grid-template-columns:repeat(7,1fr); gap:3px;}
+  .dp-dow{text-align:center; font-size:11.5px; font-weight:700; color:var(--ink-soft); padding:4px 0;}
+  .dp-dow.sun{color:var(--danger);}
+  .dp-dow.sat{color:#3d68c6;}
+  .dp-day{
+    position:relative;
+    aspect-ratio:1;
+    border:none; background:transparent;
+    border-radius:8px;
+    font-size:14px; font-weight:600;
+    font-family:var(--font);
+    color:var(--date-gray);
+    cursor:pointer;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .dp-day:hover{background:var(--accent-soft);}
+  .dp-day.other{color:#c9cdc6; font-weight:500;}
+  .dp-day.sun:not(.other), .dp-day.holiday:not(.other){color:var(--danger);}
+  .dp-day.sat:not(.other){color:#3d68c6;}
+  .dp-day.today{box-shadow:0 0 0 1.5px var(--today-line) inset;}
+  .dp-day.in-range{background:var(--accent-soft);}
+  .dp-day.selected{background:var(--accent); color:#fff !important;}
+  .dp-day .dp-dot{
+    position:absolute; bottom:4px; left:50%;
+    width:4px; height:4px; margin-left:-2px;
+    border-radius:50%; background:var(--accent);
+  }
+  .dp-day.selected .dp-dot{background:#fff;}
+
   /* 인쇄 */
   @media print{
     .controls{display:none !important;}
@@ -1161,6 +1241,40 @@
       <div style="flex:1;"></div>
       <button type="button" class="btn btn-ghost" id="clockCancelBtn">취소</button>
       <button type="button" class="btn btn-primary" id="clockOkBtn">확인</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="dayListOverlay">
+  <div class="modal daylist-modal">
+    <div class="daylist-head">
+      <h2 id="dayListTitle"></h2>
+      <span class="dl-dow" id="dayListDow"></span>
+      <span class="dl-hname" id="dayListHoliday"></span>
+      <span class="dl-count" id="dayListCount"></span>
+    </div>
+    <div class="daylist-body" id="dayListBody"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="dayListGoDayBtn" title="일간 화면으로 보기">일간으로 보기</button>
+      <div style="flex:1;"></div>
+      <button class="btn btn-ghost" id="dayListCloseBtn">닫기</button>
+      <button class="btn btn-primary" id="dayListAddBtn">+ 일정 추가</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="datePickerOverlay">
+  <div class="modal dp-modal">
+    <div class="dp-head">
+      <button type="button" class="iconbtn" id="dpPrevBtn" title="이전 달">‹</button>
+      <span class="dp-title" id="dpTitle"></span>
+      <button type="button" class="iconbtn" id="dpNextBtn" title="다음 달">›</button>
+    </div>
+    <div class="dp-grid" id="dpGrid"></div>
+    <div class="modal-actions" style="margin-top:12px;">
+      <button class="btn btn-ghost" id="dpTodayBtn">오늘</button>
+      <div style="flex:1;"></div>
+      <button class="btn btn-ghost" id="dpCloseBtn">닫기</button>
     </div>
   </div>
 </div>
@@ -1775,6 +1889,11 @@ function render(){
   else if(currentView==='week') renderWeek(root);
   else if(currentView==='month') renderMonth(root);
   else renderYear(root);
+  // 일간·3일간에서는 상단 날짜 표시를 클릭하면 날짜 선택 달력이 열린다
+  const pickable = (currentView==='day' || currentView==='3day');
+  const pl = document.getElementById('periodLabel');
+  pl.classList.toggle('clickable', pickable);
+  pl.title = pickable ? '날짜 선택' : '';
   applySearchToRoot(root);
 }
 
@@ -2140,10 +2259,7 @@ function renderMonth(root){
   root.querySelectorAll('.mcell').forEach(el=>{
     el.addEventListener('click',()=>{
       if(el.dataset.suppressClick){ delete el.dataset.suppressClick; return; }
-      const dateStr = el.dataset.date;
-      refDate = new Date(dateStr+'T00:00:00');
-      currentView = 'day';
-      render();
+      openDayListModal(el.dataset.date); // 날짜 클릭 → 그 날의 일정 목록 팝업
     });
   });
   attachDateNumberHandlers(root, '.mnum', '.mcell');
@@ -2883,6 +2999,161 @@ document.getElementById('deleteBtn').addEventListener('click', async ()=>{
     closeModal();
     render();
   }
+});
+
+/* ---------- 월간: 날짜별 일정 목록 팝업 ---------- */
+const dayListOverlay = document.getElementById('dayListOverlay');
+let dayListDateStr = '';
+
+function goToDayView(dateStr){
+  refDate = new Date(dateStr+'T00:00:00');
+  currentView = 'day';
+  render();
+}
+function openDayListModal(dateStr){
+  dayListDateStr = dateStr;
+  const d = new Date(dateStr+'T00:00:00');
+  const dow = d.getDay();
+  const isHoliday = isHolidayDate(dateStr);
+  document.getElementById('dayListTitle').textContent =
+    `${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')}`;
+  const dowEl = document.getElementById('dayListDow');
+  dowEl.textContent = `${DAY_NAMES[dow]}요일`;
+  dowEl.className = 'dl-dow ' + (isHoliday ? 'holiday' : (dow===0 ? 'sun' : (dow===6 ? 'sat' : '')));
+  document.getElementById('dayListHoliday').textContent = holidayName(dateStr);
+
+  const items = schedulesForDate(dateStr); // 종일 → 시간순 → 시간없음, 완료는 맨 아래
+  document.getElementById('dayListCount').textContent = items.length ? `${items.length}건` : '';
+  const body = document.getElementById('dayListBody');
+  if(items.length===0){
+    body.innerHTML = `<div class="dl-empty">일정 없음</div>`;
+  }else{
+    body.innerHTML = items.map(it=>{
+      const timeHtml = it.allDay
+        ? `<span class="allday-badge">종일</span>`
+        : (it.time ? escapeHtml(it.time) : '—');
+      const timeCls = (!it.allDay && !it.time) ? 'dl-time none' : 'dl-time';
+      return `<div class="dl-row ${it.done?'done':''}" data-id="${it.id}">
+        <div class="${timeCls}">${timeHtml}</div>
+        <div>
+          <div class="dl-title">${escapeHtml(it.title)}</div>
+          ${it.company ? `<div class="dl-company">${escapeHtml(it.company)}</div>` : ''}
+        </div>
+      </div>`;
+    }).join('');
+    body.querySelectorAll('.dl-row').forEach(row=>{
+      row.addEventListener('click', ()=>{
+        closeDayListModal();
+        goToDayView(dateStr); // 상세 일정 클릭 → 해당 날짜의 일간 화면으로 이동
+        // 일간 화면에서 클릭한 일정을 잠깐 강조해 위치를 알려준다
+        const target = document.querySelector(`#viewRoot .item[data-id="${row.dataset.id}"]`);
+        if(target){
+          target.scrollIntoView({behavior:'smooth', block:'center'});
+          target.classList.add('search-current');
+          setTimeout(()=>target.classList.remove('search-current'), 1600);
+        }
+      });
+    });
+  }
+  dayListOverlay.classList.add('show');
+}
+function closeDayListModal(){
+  dayListOverlay.classList.remove('show');
+}
+document.getElementById('dayListCloseBtn').addEventListener('click', closeDayListModal);
+document.getElementById('dayListGoDayBtn').addEventListener('click', ()=>{
+  closeDayListModal();
+  goToDayView(dayListDateStr);
+});
+document.getElementById('dayListAddBtn').addEventListener('click', ()=>{
+  closeDayListModal();
+  openModal(null, dayListDateStr);
+});
+dayListOverlay.addEventListener('mousedown',(e)=>{
+  dayListOverlay._downOnOverlay = (e.target===dayListOverlay);
+});
+dayListOverlay.addEventListener('mouseup',(e)=>{
+  if(e.target===dayListOverlay && dayListOverlay._downOnOverlay) closeDayListModal();
+});
+
+/* ---------- 일간·3일간: 날짜 선택 달력 ---------- */
+const datePickerOverlay = document.getElementById('datePickerOverlay');
+let dpMonth = new Date(); // 달력에 보여주고 있는 달 (1일 기준)
+
+function renderDatePicker(){
+  const y = dpMonth.getFullYear(), m = dpMonth.getMonth();
+  document.getElementById('dpTitle').textContent = `${y}년 ${m+1}월`;
+  const gridStart = startOfWeek(new Date(y, m, 1));
+  const todayStr = fmtDate(new Date());
+  const selStart = new Date(refDate); selStart.setHours(0,0,0,0);
+  const selStartStr = fmtDate(selStart);
+  const selEndStr = currentView==='3day' ? fmtDate(addDays(selStart, 2)) : selStartStr;
+
+  let html = '';
+  DAY_NAMES.forEach((n,i)=>{
+    html += `<div class="dp-dow ${i===0?'sun':(i===6?'sat':'')}">${n}</div>`;
+  });
+  for(let i=0;i<42;i++){
+    const d = addDays(gridStart, i);
+    const ds = fmtDate(d);
+    const cls = ['dp-day'];
+    if(d.getMonth()!==m) cls.push('other');
+    if(isHolidayDate(ds)) cls.push('holiday');
+    else if(d.getDay()===0) cls.push('sun');
+    else if(d.getDay()===6) cls.push('sat');
+    if(ds===todayStr) cls.push('today');
+    if(ds===selStartStr) cls.push('selected');
+    else if(ds>selStartStr && ds<=selEndStr) cls.push('in-range');
+    const hasItems = schedules.some(s=>s.date===ds);
+    html += `<button type="button" class="${cls.join(' ')}" data-date="${ds}" ${holidayName(ds)?`title="${escapeHtml(holidayName(ds))}"`:''}>${d.getDate()}${hasItems?'<span class="dp-dot"></span>':''}</button>`;
+  }
+  const grid = document.getElementById('dpGrid');
+  grid.innerHTML = html;
+  grid.querySelectorAll('.dp-day').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      refDate = new Date(btn.dataset.date+'T00:00:00');
+      closeDatePicker();
+      render();
+    });
+  });
+}
+function openDatePicker(){
+  dpMonth = new Date(refDate.getFullYear(), refDate.getMonth(), 1);
+  renderDatePicker();
+  datePickerOverlay.classList.add('show');
+}
+function closeDatePicker(){
+  datePickerOverlay.classList.remove('show');
+}
+document.getElementById('periodLabel').addEventListener('click', ()=>{
+  if(currentView==='day' || currentView==='3day') openDatePicker();
+});
+document.getElementById('dpPrevBtn').addEventListener('click', ()=>{
+  dpMonth = new Date(dpMonth.getFullYear(), dpMonth.getMonth()-1, 1);
+  renderDatePicker();
+});
+document.getElementById('dpNextBtn').addEventListener('click', ()=>{
+  dpMonth = new Date(dpMonth.getFullYear(), dpMonth.getMonth()+1, 1);
+  renderDatePicker();
+});
+document.getElementById('dpTodayBtn').addEventListener('click', ()=>{
+  refDate = new Date();
+  closeDatePicker();
+  render();
+});
+document.getElementById('dpCloseBtn').addEventListener('click', closeDatePicker);
+datePickerOverlay.addEventListener('mousedown',(e)=>{
+  datePickerOverlay._downOnOverlay = (e.target===datePickerOverlay);
+});
+datePickerOverlay.addEventListener('mouseup',(e)=>{
+  if(e.target===datePickerOverlay && datePickerOverlay._downOnOverlay) closeDatePicker();
+});
+
+// Esc로 두 팝업 닫기
+document.addEventListener('keydown', (e)=>{
+  if(e.key!=='Escape') return;
+  if(datePickerOverlay.classList.contains('show')) closeDatePicker();
+  else if(dayListOverlay.classList.contains('show')) closeDayListModal();
 });
 
 /* ---------- 공휴일 설정 모달 ---------- */
