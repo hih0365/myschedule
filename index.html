@@ -1592,6 +1592,8 @@ async function fsSaveNow(){
   const user = fbAuth.currentUser;
   if(!user || user.email !== ADMIN_EMAIL) return;
   try{
+    // merge:true는 holidays 맵을 키 단위로 병합하므로, 로컬에서 지운 날짜가 서버에 남아
+    // 실시간 동기화로 다시 살아나는 문제가 있었다. mergeFields로 지정한 필드는 통째로 교체된다.
     await fsDocRef().set({
       holidays,
       deletePassword: (typeof getDeletePw === 'function') ? getDeletePw() : '',
@@ -1599,7 +1601,7 @@ async function fsSaveNow(){
       deletePasswordHint: (typeof getDeletePwHint === 'function') ? getDeletePwHint() : '',
       updatedBy: user.email,
       updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-    }, { merge: true });
+    }, { mergeFields: ['holidays','deletePassword','deletePasswordSalt','deletePasswordHint','updatedBy','updatedAt'] });
   }catch(e){
     console.error('Firestore 저장 실패', e);
   }
