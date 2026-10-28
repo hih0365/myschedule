@@ -961,6 +961,9 @@
     .modal{padding:16px;}
   }
 
+  /* 일정 복사: 날짜 칸 강조 */
+  input.copy-date-focus{border-color:var(--accent) !important; box-shadow:0 0 0 3px var(--accent-soft);}
+
   /* 메일주소 왼쪽 새로고침 버튼 */
   .refresh-btn{width:30px;height:30px;margin-right:2px;color:var(--ink-soft);}
   .refresh-btn:hover{color:var(--accent);}
@@ -1215,6 +1218,7 @@
     </div>
     <div class="modal-actions">
       <button class="btn btn-danger" id="deleteBtn" style="display:none;">삭제</button>
+      <button class="btn btn-ghost" id="copyBtn" style="display:none;" title="이 일정을 복사해서 새 일정으로 만들기 (날짜는 다음날로 설정)">복사</button>
       <div style="flex:1;"></div>
       <button class="btn btn-ghost" id="cancelBtn">취소</button>
       <button class="btn btn-primary" id="saveBtn">저장</button>
@@ -2716,8 +2720,11 @@ document.getElementById('fRepeatToggle').addEventListener('change', (e) => {
 
 const overlay = document.getElementById('overlay');
 let modalExplicitlySaved = false;
+let modalCopyMode = false; // '일정 복사' 상태: 저장 버튼을 눌러야만 새 일정이 만들어진다
 function openModal(id, presetDate){
   modalExplicitlySaved = false;
+  modalCopyMode = false;
+  document.getElementById('fDate').classList.remove('copy-date-focus');
   document.getElementById('editId').value = id || '';
   
   document.getElementById('fTimeManualCheck').checked = false;
@@ -2798,6 +2805,7 @@ function openModal(id, presetDate){
     };
 
     document.getElementById('deleteBtn').style.display = 'inline-block';
+    document.getElementById('copyBtn').style.display = 'inline-block';
   }else{
     document.getElementById('modalTitle').textContent = '일정 추가';
     document.getElementById('fTitle').value = '';
@@ -2829,6 +2837,7 @@ function openModal(id, presetDate){
       }
     };
     document.getElementById('deleteBtn').style.display = 'none';
+    document.getElementById('copyBtn').style.display = 'none';
   }
   overlay.classList.add('show');
   setTimeout(()=>document.getElementById('fTitle').focus(),50);
@@ -2856,6 +2865,7 @@ function autoSaveIfTitled(){
   // '일정 추가' 모달에서 저장 버튼을 누르지 않고 닫아도, 제목만 입력되어 있으면 자동 저장
   const id = document.getElementById('editId').value;
   if(id) return; // 수정 모달에서는 자동 저장 대상 아님
+  if(modalCopyMode) return; // 복사 중에 취소하면 복사본을 만들지 않음
   const title = document.getElementById('fTitle').value.trim();
   if(!title) return;
   const date = document.getElementById('fDate').value || fmtDate(refDate);
@@ -3013,6 +3023,48 @@ document.getElementById('saveBtn').addEventListener('click',()=>{
   modalExplicitlySaved = true;
   closeModal();
   render();
+});
+
+/* 일정 복사: 수정 창을 '일정 복사' 창으로 바꾼다.
+   현재 창에 보이는 내용(제목·시간·업체·담당자·연락처·주소·메모·종일)을 그대로 두고,
+   날짜는 다음날로, 완료는 해제한 상태로 시작한다. 원본 일정은 바뀌지 않는다. */
+document.getElementById('copyBtn').addEventListener('click', ()=>{
+  const srcId = document.getElementById('editId').value;
+  const src = schedules.find(s=>s.id===srcId);
+  if(!src) return;
+  modalCopyMode = true;
+  document.getElementById('editId').value = '';
+  document.getElementById('modalTitle').textContent = '일정 복사';
+
+  const baseDate = src.date; // 원본 날짜 기준 다음날
+  const fDate = document.getElementById('fDate');
+  fDate.value = fmtDate(addDays(new Date(baseDate+'T00:00:00'), 1));
+
+  // 완료 상태는 복사하지 않음 (새 일정용 확인 동작으로 교체)
+  const fDoneCheck = document.getElementById('fDone');
+  fDoneCheck.checked = false;
+  fDoneCheck.onchange = function(e){
+    if(fDoneCheck.checked && !confirm('완료하셨습니까?')){
+      fDoneCheck.checked = false;
+      e.preventDefault();
+    }
+  };
+  // 반복 설정은 꺼진 상태로 시작
+  document.getElementById('fRepeatToggle').checked = false;
+  document.getElementById('fRepeat').value = 'none';
+  document.getElementById('repeatEndWrap').style.display = 'none';
+  document.getElementById('repeatFieldRow').style.display = 'none';
+  document.getElementById('fRepeatEnd').value = fmtDate(addDays(new Date(fDate.value+'T00:00:00'), 1));
+
+  document.getElementById('deleteBtn').style.display = 'none';
+  document.getElementById('copyBtn').style.display = 'none';
+
+  // 날짜를 바로 고칠 수 있도록 날짜 칸을 강조
+  fDate.classList.add('copy-date-focus');
+  fDate.focus();
+});
+document.getElementById('fDate').addEventListener('change', ()=>{
+  document.getElementById('fDate').classList.remove('copy-date-focus');
 });
 
 document.getElementById('deleteBtn').addEventListener('click', async ()=>{
