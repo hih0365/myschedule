@@ -961,6 +961,37 @@
     .modal{padding:16px;}
   }
 
+  /* 반복 일정 묶음 */
+  .series-box{
+    margin:4px 0 12px; padding:10px 12px;
+    border:1px solid var(--accent-soft); border-left:3px solid var(--accent);
+    border-radius:8px; background:var(--bg);
+  }
+  .series-head{display:flex; align-items:center; gap:6px; font-size:13.5px; flex-wrap:wrap;}
+  .series-head b{color:var(--accent);}
+  .series-icon{font-weight:800; color:var(--accent);}
+  .series-info{font-size:12.5px; color:var(--ink-soft);}
+  .series-row{display:flex; align-items:center; gap:10px; margin-top:8px;}
+  .series-row label{font-size:12.5px; font-weight:700; color:var(--ink-soft); white-space:nowrap; margin:0;}
+  .series-row input{max-width:180px;}
+  .series-hint{font-size:11.5px; color:#8a9086; margin-top:6px; line-height:1.4;}
+  .rep-mark{font-size:11px; font-weight:800; color:var(--accent); margin-left:4px; opacity:0.75;}
+  .item.done .rep-mark{color:var(--done);}
+  .scope-modal{max-width:360px; padding:20px 20px 14px;}
+  .scope-modal h2{margin:0 0 6px; font-size:17px;}
+  .scope-desc{font-size:12.5px; color:var(--ink-soft); margin-bottom:12px; line-height:1.45;}
+  .scope-options{display:flex; flex-direction:column; gap:7px;}
+  .scope-opt{
+    display:flex; flex-direction:column; align-items:flex-start; gap:2px;
+    padding:10px 12px; border-radius:8px;
+    border:1px solid #dfe2dc; background:#fff; cursor:pointer;
+    font-family:var(--font); text-align:left;
+  }
+  .scope-opt:hover{border-color:var(--accent); background:var(--accent-soft);}
+  .scope-opt b{font-size:14px; color:var(--ink);}
+  .scope-opt span{font-size:12px; color:var(--ink-soft);}
+  .scope-modal.danger .scope-opt:hover{border-color:var(--danger); background:#fbeceb;}
+
   /* 일정 복사: 날짜 칸 강조 */
   input.copy-date-focus{border-color:var(--accent) !important; box-shadow:0 0 0 3px var(--accent-soft);}
 
@@ -1207,6 +1238,14 @@
         <input type="date" id="fRepeatEnd">
       </div>
     </div>
+    <div class="series-box" id="seriesBox" style="display:none;">
+      <div class="series-head"><span class="series-icon">↻</span><b id="seriesKind">매주 반복</b><span class="series-info" id="seriesInfo"></span></div>
+      <div class="series-row">
+        <label for="fSeriesEnd">반복 종료일</label>
+        <input type="date" id="fSeriesEnd">
+      </div>
+      <div class="series-hint">날짜(요일)·시간·문구를 고치고 저장하면 적용 범위를 고를 수 있습니다. 완료된 일정은 바뀌지 않습니다.</div>
+    </div>
     <div class="field" style="display:flex; gap:18px; align-items:center;">
       <label style="display:flex; align-items:center; gap:6px; font-weight:600; color:var(--ink); cursor:pointer;">
         <input type="checkbox" id="fDone" style="width:15px; height:15px; accent-color:var(--accent);"> 완료됨
@@ -1253,6 +1292,21 @@
       <div style="flex:1;"></div>
       <button type="button" class="btn btn-ghost" id="clockCancelBtn">취소</button>
       <button type="button" class="btn btn-primary" id="clockOkBtn">확인</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="scopeOverlay">
+  <div class="modal scope-modal">
+    <h2 id="scopeTitle">반복 일정 수정</h2>
+    <div class="scope-desc" id="scopeDesc"></div>
+    <div class="scope-options">
+      <button type="button" class="scope-opt" data-scope="one"><b>이 일정만</b><span id="scopeOneSub">선택한 일정 1건</span></button>
+      <button type="button" class="scope-opt" data-scope="future"><b>이 일정 및 이후 일정</b><span id="scopeFutureSub"></span></button>
+    </div>
+    <div class="modal-actions">
+      <div style="flex:1;"></div>
+      <button class="btn btn-ghost" id="scopeCancelBtn">취소</button>
     </div>
   </div>
 </div>
@@ -2156,7 +2210,7 @@ function renderItem(it, viewType = 'day'){
     <span class="grip">⋮⋮</span>
     ${chkHtml}
     <div class="txt">
-      <div class="ttl ${isWeek?'clamp2':''}">${timePrefix}${escapeHtml(it.title)}</div>
+      <div class="ttl ${isWeek?'clamp2':''}">${timePrefix}${escapeHtml(it.title)}${it.repeatId?'<span class="rep-mark" title="반복 일정">↻</span>':''}</div>
       ${meta ? `<div class="tm" ${tmStyle}>${meta}</div>` : ''}
     </div>
   </div>`;
@@ -2739,6 +2793,7 @@ function openModal(id, presetDate){
   document.getElementById('fRepeat').value = 'none';
   document.getElementById('repeatEndWrap').style.display = 'none';
   document.getElementById('repeatFieldRow').style.display = 'none';
+  setSeriesUI(null);
 
   if(id){
     const it = schedules.find(s=>s.id===id);
@@ -2805,6 +2860,7 @@ function openModal(id, presetDate){
 
     document.getElementById('deleteBtn').style.display = 'inline-block';
     document.getElementById('copyBtn').style.display = 'inline-block';
+    setSeriesUI(it);
   }else{
     document.getElementById('modalTitle').textContent = '일정 추가';
     document.getElementById('fTitle').value = '';
@@ -2972,43 +3028,46 @@ document.getElementById('saveBtn').addEventListener('click',()=>{
   const hasRepeat = document.getElementById('fRepeatToggle').checked;
   const repeatType = hasRepeat ? document.getElementById('fRepeat').value : 'none';
 
+  // 반복 묶음에 속한 일정은 범위(이 일정만/이후/전체)를 골라 일괄 수정
+  if(id){
+    const cur = schedules.find(s=>s.id===id);
+    if(cur && cur.repeatId){
+      saveSeriesEdit(cur, {title, date, time, company, contact, phone, address, memo, done, allDay});
+      return;
+    }
+  }
+
+  // 반복 종료일 확인은 일정을 만들기 전에 한다
+  if(repeatType !== 'none' && !document.getElementById('fRepeatEnd').value){
+    alert('반복 종료일을 설정해주세요.');
+    return;
+  }
+
+  let baseItem;
   if(id){
     const it = schedules.find(s=>s.id===id);
+    baseItem = it;
     const wasAllDay = !!it.allDay;
     it.title=title; it.date=date; it.time=time; it.company=company; it.contact=contact; it.phone=phone; it.address=address; it.memo=memo; it.done=done;
     it.allDay = allDay;
     // 종일 여부가 바뀌면 그룹이 달라지므로 새 그룹의 맨 아래로 배치
     if(wasAllDay !== allDay) it.order = nextAllDayOrder(date, allDay);
   }else{
-    schedules.push({id:uid(), title, date, time, company, contact, phone, address, memo, done, allDay, order: nextAllDayOrder(date, allDay)});
+    baseItem = {id:uid(), title, date, time, company, contact, phone, address, memo, done, allDay, order: nextAllDayOrder(date, allDay)};
+    schedules.push(baseItem);
   }
 
   // 추가 및 수정 시 설정된 반복 유형에 기반하여 미래 일정 자동 생성
   if(repeatType !== 'none'){
     const endVal = document.getElementById('fRepeatEnd').value;
-    if(!endVal){
-      alert('반복 종료일을 설정해주세요.');
-      return;
-    }
-    const startDate = new Date(date + 'T00:00:00');
-    const endDate = new Date(endVal + 'T00:00:00');
-    
-    if(endDate > startDate){
-      let loopDate = new Date(startDate);
-      if(repeatType === 'weekly'){
-        loopDate.setDate(loopDate.getDate() + 7);
-        while(loopDate <= endDate){
-          schedules.push({id:uid(), title, date: fmtDate(loopDate), time, company, contact, phone, address, memo, done, allDay, order: nextAllDayOrder(fmtDate(loopDate), allDay)});
-          loopDate.setDate(loopDate.getDate() + 7);
-        }
-      } else if(repeatType === 'monthly'){
-        loopDate.setMonth(loopDate.getMonth() + 1);
-        while(loopDate <= endDate){
-          schedules.push({id:uid(), title, date: fmtDate(loopDate), time, company, contact, phone, address, memo, done, allDay, order: nextAllDayOrder(fmtDate(loopDate), allDay)});
-          loopDate.setMonth(loopDate.getMonth() + 1);
-        }
-      }
-    }
+    // 반복으로 만든 일정은 같은 묶음 ID로 묶어 나중에 한꺼번에 수정·삭제할 수 있게 한다
+    const repeatId = 'rep' + uid();
+    const dates = seriesDates(date, repeatType, endVal).slice(1); // 첫 날짜는 baseItem
+    if(dates.length) Object.assign(baseItem, {repeatId, repeatType, repeatEnd: endVal});
+    dates.forEach(ds=>{
+      schedules.push({id:uid(), title, date: ds, time, company, contact, phone, address, memo, done:false, allDay,
+        order: nextAllDayOrder(ds, allDay), repeatId, repeatType, repeatEnd: endVal});
+    });
   }
 
   save();
@@ -3017,6 +3076,171 @@ document.getElementById('saveBtn').addEventListener('click',()=>{
   closeModal();
   render();
 });
+
+/* ---------- 반복 일정 묶음 ---------- */
+const REPEAT_LABEL = {weekly:'매주 반복', monthly:'매월 반복'};
+function fmtDot(ds){ return ds.replace(/-/g,'.'); }
+function daysBetween(a, b){
+  return Math.round((new Date(b+'T00:00:00') - new Date(a+'T00:00:00')) / 86400000);
+}
+// start에서 n개월 뒤 같은 날짜 (31일처럼 그 달에 없는 날은 그 달 말일로)
+function addMonthsClamp(startStr, n){
+  const d = new Date(startStr+'T00:00:00');
+  const day = d.getDate();
+  const t = new Date(d.getFullYear(), d.getMonth()+n, 1);
+  const last = new Date(t.getFullYear(), t.getMonth()+1, 0).getDate();
+  t.setDate(Math.min(day, last));
+  return fmtDate(t);
+}
+// startStr부터 endStr까지 반복 날짜 목록 (startStr 포함)
+function seriesDates(startStr, type, endStr){
+  const out = [];
+  for(let k=0; k<1000; k++){
+    const ds = type==='monthly' ? addMonthsClamp(startStr, k) : fmtDate(addDays(new Date(startStr+'T00:00:00'), 7*k));
+    if(ds > endStr) break;
+    out.push(ds);
+  }
+  return out;
+}
+function seriesItems(repeatId){
+  return schedules.filter(s=>s.repeatId===repeatId).sort((a,b)=>a.date.localeCompare(b.date));
+}
+// 범위에 해당하는 일정 (완료된 일정은 제외, 지금 연 일정은 항상 포함)
+function seriesTargets(it, scope, fromDate){
+  if(scope==='one') return [it];
+  return seriesItems(it.repeatId).filter(s=>
+    s===it || (!s.done && s.date >= fromDate)
+  );
+}
+function setSeriesUI(it){
+  const box = document.getElementById('seriesBox');
+  const toggleLabel = document.getElementById('fRepeatToggle').closest('label');
+  if(!it || !it.repeatId){
+    box.style.display = 'none';
+    toggleLabel.style.display = 'flex';
+    return;
+  }
+  const list = seriesItems(it.repeatId);
+  const doneCnt = list.filter(s=>s.done).length;
+  const first = list[0].date, last = list[list.length-1].date;
+  document.getElementById('seriesKind').textContent = REPEAT_LABEL[it.repeatType] || '반복';
+  document.getElementById('seriesInfo').textContent =
+    `${fmtDot(first)} ~ ${fmtDot(last)} · ${list.length}건${doneCnt?` (완료 ${doneCnt})`:''}`;
+  document.getElementById('fSeriesEnd').value = it.repeatEnd || last;
+  box.style.display = 'block';
+  toggleLabel.style.display = 'none';
+  document.getElementById('fRepeatToggle').checked = false;
+  document.getElementById('repeatFieldRow').style.display = 'none';
+}
+
+// 적용 범위 선택 창. 'one'(이 일정만) | 'future'(이 일정 및 이후) | null(취소)
+const scopeOverlay = document.getElementById('scopeOverlay');
+let scopeResolve = null;
+function askSeriesScope(kind, it){
+  const list = seriesItems(it.repeatId);
+  const futureCnt = list.filter(s=>s===it || (!s.done && s.date >= it.date)).length;
+  const doneCnt = list.filter(s=>s.done && s!==it && s.date >= it.date).length;
+  const isDel = kind==='delete';
+  document.getElementById('scopeTitle').textContent = isDel ? '반복 일정 삭제' : '반복 일정 수정';
+  document.getElementById('scopeDesc').textContent =
+    (isDel ? '어느 범위까지 삭제할까요?' : '변경 내용을 어느 범위까지 적용할까요?') +
+    (doneCnt ? ` 완료된 일정 ${doneCnt}건은 제외됩니다.` : '');
+  document.getElementById('scopeFutureSub').textContent = `${fmtDot(it.date)}부터 · ${futureCnt}건`;
+  scopeOverlay.querySelector('.scope-modal').classList.toggle('danger', isDel);
+  scopeOverlay.classList.add('show');
+  return new Promise(res=>{ scopeResolve = res; });
+}
+function closeScope(val){
+  scopeOverlay.classList.remove('show');
+  if(scopeResolve){ const r = scopeResolve; scopeResolve = null; r(val); }
+}
+scopeOverlay.querySelectorAll('.scope-opt').forEach(b=>{
+  b.addEventListener('click', ()=>closeScope(b.dataset.scope));
+});
+document.getElementById('scopeCancelBtn').addEventListener('click', ()=>closeScope(null));
+scopeOverlay.addEventListener('mousedown',(e)=>{ scopeOverlay._down = (e.target===scopeOverlay); });
+scopeOverlay.addEventListener('mouseup',(e)=>{ if(e.target===scopeOverlay && scopeOverlay._down) closeScope(null); });
+
+// 반복 묶음 일정 저장
+// 범위 안의 다른 일정에는 '이번에 실제로 바꾼 항목'만 반영한다 (다른 일정에 따로 고쳐 둔 내용은 보존)
+async function saveSeriesEdit(it, v){
+  const FIELDS = ['title','time','company','contact','phone','address','memo'];
+  const changed = FIELDS.filter(k=>(it[k]||'') !== (v[k]||''));
+  const allDayChanged = (!!it.allDay !== !!v.allDay);
+  const dayDelta = daysBetween(it.date, v.date);
+  const list0 = seriesItems(it.repeatId);
+  const oldEnd = it.repeatEnd || list0[list0.length-1].date;
+  const endInput = document.getElementById('fSeriesEnd').value;
+  const endChanged = !!endInput && endInput !== oldEnd;
+
+  if(!endInput){ alert('반복 종료일을 설정해주세요.'); return; }
+
+  let scope = 'one';
+  if(changed.length || allDayChanged || dayDelta !== 0){
+    scope = await askSeriesScope('edit', it);
+    if(!scope) return; // 취소 → 수정 창 그대로 유지
+  }
+
+  // 종료일: 직접 바꿨으면 그 값, 아니면 날짜 이동만큼 함께 이동
+  let newEnd = endChanged ? endInput
+             : (scope!=='one' && dayDelta ? fmtDate(addDays(new Date(oldEnd+'T00:00:00'), dayDelta)) : oldEnd);
+  if(endChanged && newEnd < v.date){ alert('반복 종료일은 이 일정의 날짜보다 앞설 수 없습니다.'); return; }
+
+  // 종료일 단축으로 지워질 일정은 미리 확인 (취소하면 아무것도 바꾸지 않음)
+  if(endChanged){
+    const willRemove = list0.filter(s=>s!==it && !s.done && (
+      (seriesTargets(it, scope, it.date).includes(s) && dayDelta ? fmtDate(addDays(new Date(s.date+'T00:00:00'), dayDelta)) : s.date) > newEnd
+    )).length;
+    if(willRemove && !confirm(`반복 종료일 이후 일정 ${willRemove}건이 삭제됩니다. 계속할까요?`)) return;
+  }
+
+  const origDate = it.date;
+  seriesTargets(it, scope, origDate).forEach(s=>{
+    const wasAllDay = !!s.allDay;
+    if(s===it){
+      FIELDS.forEach(k=>{ s[k] = v[k]; });
+      s.allDay = v.allDay;
+    }else{
+      changed.forEach(k=>{ s[k] = v[k]; });
+      if(allDayChanged){ s.allDay = v.allDay; if(v.allDay) s.time = ''; }
+    }
+    if(dayDelta !== 0){
+      s.date = (s===it) ? v.date : fmtDate(addDays(new Date(s.date+'T00:00:00'), dayDelta));
+      s.order = nextAllDayOrder(s.date, s.allDay);
+    }else if(wasAllDay !== !!s.allDay){
+      s.order = nextAllDayOrder(s.date, s.allDay);
+    }
+  });
+  it.done = v.done; // 완료 여부는 지금 연 일정에만
+
+  if(endChanged){
+    // 줄이면 종료일 이후의 미완료 일정 삭제
+    const rm = new Set(seriesItems(it.repeatId).filter(s=>s.date > newEnd && !s.done && s!==it).map(s=>s.id));
+    schedules = schedules.filter(s=>!rm.has(s.id));
+    // 늘리면 마지막 일정을 본떠 추가
+    const remain = seriesItems(it.repeatId);
+    const tpl = remain[remain.length-1];
+    if(tpl.date < newEnd){
+      const type = it.repeatType || 'weekly';
+      const anchor = type==='monthly' ? remain[0].date : tpl.date;
+      seriesDates(anchor, type, newEnd).filter(ds=>ds > tpl.date).forEach(ds=>{
+        schedules.push({id:uid(), title:tpl.title, date:ds, time:tpl.time, company:tpl.company, contact:tpl.contact,
+          phone:tpl.phone, address:tpl.address, memo:tpl.memo, done:false, allDay:!!tpl.allDay,
+          order: nextAllDayOrder(ds, !!tpl.allDay), repeatId: it.repeatId, repeatType: type, repeatEnd: newEnd});
+      });
+    }
+  }
+  // '이 일정만' 옮겨 종료일을 넘어간 경우에도 종료일이 마지막 일정보다 앞서지 않도록
+  const fin = seriesItems(it.repeatId);
+  if(fin.length && fin[fin.length-1].date > newEnd) newEnd = fin[fin.length-1].date;
+  fin.forEach(s=>{ s.repeatEnd = newEnd; });
+
+  save();
+  refDate = calcRefDateAfterSave(it.date);
+  modalExplicitlySaved = true;
+  closeModal();
+  render();
+}
 
 /* 일정 복사: 수정 창을 '일정 복사' 창으로 바꾼다.
    현재 창에 보이는 내용(제목·시간·업체·담당자·연락처·주소·메모·종일)을 그대로 두고,
@@ -3051,6 +3275,7 @@ document.getElementById('copyBtn').addEventListener('click', ()=>{
 
   document.getElementById('deleteBtn').style.display = 'none';
   document.getElementById('copyBtn').style.display = 'none';
+  setSeriesUI(null); // 복사본은 반복 묶음에 들어가지 않는 새 일정
 
   // 날짜를 바로 고칠 수 있도록 날짜 칸을 강조
   fDate.classList.add('copy-date-focus');
@@ -3067,6 +3292,18 @@ document.getElementById('deleteBtn').addEventListener('click', async ()=>{
   if(it && it.done && getDeletePw()){
     const ok = await requestDeletePassword();
     if(!ok) return;
+  }
+  if(it && it.repeatId){
+    const scope = await askSeriesScope('delete', it);
+    if(!scope) return;
+    const targets = new Set(seriesTargets(it, scope, it.date).map(s=>s.id));
+    if(!confirm(`반복 일정 ${targets.size}건을 삭제하시겠습니까?`)) return;
+    schedules = schedules.filter(s=>!targets.has(s.id));
+    save();
+    modalExplicitlySaved = true;
+    closeModal();
+    render();
+    return;
   }
   if(confirm('이 일정을 삭제하시겠습니까?')){
     schedules = schedules.filter(s=>s.id!==id);
@@ -3225,6 +3462,7 @@ datePickerOverlay.addEventListener('mouseup',(e)=>{
 // Esc로 두 팝업 닫기
 document.addEventListener('keydown', (e)=>{
   if(e.key!=='Escape') return;
+  if(scopeOverlay.classList.contains('show')){ closeScope(null); return; }
   if(datePickerOverlay.classList.contains('show')) closeDatePicker();
   else if(dayListOverlay.classList.contains('show')) closeDayListModal();
 });
