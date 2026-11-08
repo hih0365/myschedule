@@ -803,7 +803,7 @@
     display:flex;
     flex-direction:column;
     gap:4px;
-    margin-left:6px;
+    margin-right:6px;
   }
   .clock-ampm-btn{
     border:1px solid var(--line-strong);
@@ -1266,13 +1266,13 @@
 <div class="overlay" id="clockOverlay">
   <div class="modal clock-modal">
     <div class="clock-digital">
-      <span class="clock-digit" id="clockHourDisplay">--</span>
-      <span class="clock-colon">:</span>
-      <span class="clock-digit" id="clockMinuteDisplay">--</span>
       <div class="clock-ampm">
         <button type="button" class="clock-ampm-btn" id="clockAmBtn">AM</button>
         <button type="button" class="clock-ampm-btn" id="clockPmBtn">PM</button>
       </div>
+      <span class="clock-digit" id="clockHourDisplay">--</span>
+      <span class="clock-colon">:</span>
+      <span class="clock-digit" id="clockMinuteDisplay">--</span>
     </div>
     <div class="clock-face-area">
       <div class="clock-face" id="clockFace">
