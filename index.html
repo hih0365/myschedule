@@ -3161,6 +3161,8 @@ function acHighlight(title, query){
   return escapeHtml(title.slice(0,i)) + '<mark>' + escapeHtml(title.slice(i, i+q.length)) + '</mark>' + escapeHtml(title.slice(i+q.length));
 }
 function renderTitleAc(){
+  // '일정 수정' 창에서는 추천하지 않음 (일정 추가·복사 창에서만)
+  if(document.getElementById('editId').value){ hideTitleAc(); return; }
   const input = document.getElementById('fTitle');
   const box = document.getElementById('titleAc');
   acItems = findTitleMatches(input.value);
