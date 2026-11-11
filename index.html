@@ -2796,6 +2796,27 @@ document.getElementById('fRepeatToggle').addEventListener('change', (e) => {
 
 const overlay = document.getElementById('overlay');
 let modalExplicitlySaved = false;
+// 저장된 시간 문자열을 시간 입력칸에 채운다 (5분 단위 'HH:MM'이면 시/분 선택, 그 외는 '직접 입력')
+function fillTimeFields(time){
+  if(time){
+    const [hh, mm] = time.split(':');
+    const validMinutes = ['00','05','10','15','20','25','30','35','40','45','50','55'];
+    if(hh && mm && !isNaN(parseInt(hh)) && validMinutes.includes(mm)){
+      setHourValue(hh);
+      document.getElementById('fMinute').value = mm;
+      updateTimeBtnLabel();
+    } else {
+      document.getElementById('fTimeManualCheck').checked = true;
+      document.getElementById('timeSelectRow').style.display = 'none';
+      document.getElementById('timeInputRow').style.display = 'flex';
+      document.getElementById('fTimeManual').value = time;
+    }
+  }else{
+    setHourValue('');
+    document.getElementById('fMinute').value = '';
+    updateTimeBtnLabel();
+  }
+}
 let modalCopyMode = false; // '일정 복사' 상태: 저장 버튼을 눌러야만 새 일정이 만들어진다
 function openModal(id, presetDate){
   modalExplicitlySaved = false;
@@ -2830,24 +2851,7 @@ function openModal(id, presetDate){
       applyAllDayState();
     }
 
-    if(it.time){
-      const [hh, mm] = it.time.split(':');
-      const validMinutes = ['00','05','10','15','20','25','30','35','40','45','50','55'];
-      if(hh && mm && !isNaN(parseInt(hh)) && validMinutes.includes(mm)){
-        setHourValue(hh);
-        document.getElementById('fMinute').value = mm;
-        updateTimeBtnLabel();
-      } else {
-        document.getElementById('fTimeManualCheck').checked = true;
-        document.getElementById('timeSelectRow').style.display = 'none';
-        document.getElementById('timeInputRow').style.display = 'flex';
-        document.getElementById('fTimeManual').value = it.time;
-      }
-    }else{
-      setHourValue('');
-      document.getElementById('fMinute').value = '';
-      updateTimeBtnLabel();
-    }
+    fillTimeFields(it.time);
     document.getElementById('fCompany').value = it.company || '';
     document.getElementById('fContact').value = it.contact || '';
     document.getElementById('fPhone').value = it.phone || '';
@@ -3163,7 +3167,8 @@ function renderTitleAc(){
   acIndex = -1;
   if(!acItems.length){ hideTitleAc(); return; }
   box.innerHTML = acItems.map((e,i)=>{
-    const sub = [e.latest.company, `최근 ${fmtDot(e.latest.date||'')}`, e.count>1?`${e.count}회`:''].filter(Boolean).map(escapeHtml).join(' · ');
+    const when = e.latest.allDay ? '종일' : (e.latest.time || '');
+    const sub = [when, e.latest.company, `최근 ${fmtDot(e.latest.date||'')}`, e.count>1?`${e.count}회`:''].filter(Boolean).map(escapeHtml).join(' · ');
     return `<div class="ac-item" role="option" data-i="${i}">
       <div class="ac-title">${acHighlight(e.title, input.value)}</div>
       <div class="ac-sub">${sub}</div>
@@ -3188,11 +3193,23 @@ function moveTitleAc(step){
   rows.forEach((r,i)=>r.classList.toggle('active', i===acIndex));
   rows[acIndex].scrollIntoView({block:'nearest'});
 }
-// 추천 제목 선택: 제목을 채우고, 비어 있는 회사명·담당자·연락처·주소는 가장 최근 같은 일정에서 가져온다
+// 추천 제목 선택: 제목을 채우고, 비어 있는 시간·회사명·담당자·연락처·주소는 가장 최근 같은 일정에서 가져온다
 function pickTitleAc(i){
   const e = acItems[i];
   if(!e) return;
   document.getElementById('fTitle').value = e.title;
+  // 시간: 아직 시간·종일 어느 것도 정하지 않았을 때만 채운다
+  const timeEmpty = !document.getElementById('fHour').value
+    && !document.getElementById('fTimeManual').value.trim()
+    && !document.getElementById('fAllDayCheck').checked;
+  if(timeEmpty){
+    if(e.latest.allDay){
+      document.getElementById('fAllDayCheck').checked = true;
+      applyAllDayState();
+    }else if(e.latest.time){
+      fillTimeFields(e.latest.time);
+    }
+  }
   [['fCompany','company'],['fContact','contact'],['fPhone','phone'],['fAddress','address']].forEach(([fid,key])=>{
     const el = document.getElementById(fid);
     if(el && !el.value.trim() && e.latest[key]) el.value = e.latest[key];
